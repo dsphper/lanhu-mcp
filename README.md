@@ -146,10 +146,23 @@ DEFAULT_FEISHU_WEBHOOK = "https://open.feishu.cn/open-apis/bot/v2/hook/your-webh
 4. **其他环境变量**（可选）
 
 ```bash
-export DATA_DIR="./data"           # 数据存储目录
+# 服务器配置
 export SERVER_HOST="0.0.0.0"       # 服务器监听地址
 export SERVER_PORT=8000            # 服务器端口
+
+# 数据存储
+export DATA_DIR="./data"           # 数据存储目录
+
+# 性能调优
+export HTTP_TIMEOUT=30             # HTTP请求超时时间（秒）
+export VIEWPORT_WIDTH=1920         # 浏览器视口宽度
+export VIEWPORT_HEIGHT=1080        # 浏览器视口高度
+
+# 调试选项
+export DEBUG="false"               # 调试模式（true/false）
 ```
+
+> 📝 完整环境变量说明请参考 `config.example.env` 文件
 
 ### 运行
 

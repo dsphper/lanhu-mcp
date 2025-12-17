@@ -103,10 +103,23 @@ Update `FEISHU_USER_ID_MAP` dictionary to support @mention feature.
 4. **Other Environment Variables** (Optional)
 
 ```bash
-export DATA_DIR="./data"           # Data storage directory
+# Server Configuration
 export SERVER_HOST="0.0.0.0"       # Server listen address
 export SERVER_PORT=8000            # Server port
+
+# Data Storage
+export DATA_DIR="./data"           # Data storage directory
+
+# Performance Tuning
+export HTTP_TIMEOUT=30             # HTTP request timeout (seconds)
+export VIEWPORT_WIDTH=1920         # Browser viewport width
+export VIEWPORT_HEIGHT=1080        # Browser viewport height
+
+# Debug Options
+export DEBUG="false"               # Debug mode (true/false)
 ```
+
+> 📝 For complete environment variable documentation, see `config.example.env`
 
 ### Running
 
