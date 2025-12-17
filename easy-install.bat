@@ -38,7 +38,7 @@ python --version >nul 2>&1
 if errorlevel 1 (
     echo ❌ 未检测到 Python
     echo.
-    echo 请先安装 Python 3.8 或更高版本：
+    echo 请先安装 Python 3.10 或更高版本：
     echo   官网: https://www.python.org/downloads/
     echo.
     echo 安装时请务必勾选 "Add Python to PATH"

@@ -47,7 +47,7 @@ echo -e "正在检查 Python..."
 if ! command -v python3 &> /dev/null; then
     echo -e "${RED}❌ 未检测到 Python 3${NC}"
     echo ""
-    echo "请先安装 Python 3.8 或更高版本："
+    echo "请先安装 Python 3.10 或更高版本："
     echo "  Mac: brew install python3"
     echo "  Ubuntu: sudo apt install python3 python3-pip"
     echo "  官网: https://www.python.org/downloads/"

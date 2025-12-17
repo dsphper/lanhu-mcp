@@ -10,7 +10,7 @@ REM 检查 Python 版本
 python --version >nul 2>&1
 if errorlevel 1 (
     echo ❌ 错误：未安装 Python
-    echo 请从 https://www.python.org/ 安装 Python 3.8 或更高版本
+    echo 请从 https://www.python.org/ 安装 Python 3.10 或更高版本
     pause
     exit /b 1
 )
