@@ -47,6 +47,16 @@ FEISHU_WEBHOOK_URL = os.getenv("FEISHU_WEBHOOK_URL", DEFAULT_FEISHU_WEBHOOK)
 DATA_DIR = Path(os.getenv("DATA_DIR", "./data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+# HTTP 请求超时时间（秒）
+HTTP_TIMEOUT = float(os.getenv("HTTP_TIMEOUT", "30"))
+
+# 截图视口尺寸
+SCREENSHOT_WIDTH = int(os.getenv("SCREENSHOT_WIDTH", "1920"))
+SCREENSHOT_HEIGHT = int(os.getenv("SCREENSHOT_HEIGHT", "1080"))
+
+# 调试模式
+DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+
 # 角色枚举（用于识别用户身份）
 VALID_ROLES = ["后端", "前端", "客户端", "开发", "运维", "产品", "项目经理"]
 
@@ -314,7 +324,7 @@ async def send_feishu_notification(
     }
     
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
             response = await client.post(
                 FEISHU_WEBHOOK_URL,
                 json=payload,
@@ -841,7 +851,7 @@ class LanhuExtractor:
             "request-from": "web",
             "real-path": "/item/project/product"
         }
-        self.client = httpx.AsyncClient(timeout=30.0, headers=headers, follow_redirects=True)
+        self.client = httpx.AsyncClient(timeout=HTTP_TIMEOUT, headers=headers, follow_redirects=True)
 
     def parse_url(self, url: str) -> dict:
         """
@@ -1597,7 +1607,7 @@ async def screenshot_page_internal(resource_dir: str, page_names: List[str], out
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page(viewport={'width': 1920, 'height': 1080})
+        page = await browser.new_page(viewport={'width': SCREENSHOT_WIDTH, 'height': SCREENSHOT_HEIGHT})
 
         for page_name in pages_to_render:
             try:
@@ -3815,8 +3825,10 @@ async def lanhu_get_members(
 
 if __name__ == "__main__":
     # 运行MCP服务器
-    # 使用HTTP传输方式，监听8000端口
-    mcp.run(transport="http", path="/mcp", host="0.0.0.0", port=8000)
+    # 使用HTTP传输方式，支持环境变量配置
+    SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
+    SERVER_PORT = int(os.getenv("SERVER_PORT", "8000"))
+    mcp.run(transport="http", path="/mcp", host=SERVER_HOST, port=SERVER_PORT)
 
 
 
