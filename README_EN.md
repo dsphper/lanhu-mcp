@@ -62,6 +62,20 @@ English | [简体中文](README.md)
 
 ## 🚀 Quick Start
 
+> ⚠️ **IMPORTANT: Vision-Capable AI Model Required!**
+> 
+> This project requires AI models with **image recognition and analysis capabilities**. Recommended 2025 mainstream vision models:
+> - 🤖 **Claude** (Anthropic)
+> - 🌟 **GPT** (OpenAI)
+> - 💎 **Gemini** (Google)
+> - 🚀 **Kimi** (Moonshot AI)
+> - 🎯 **Qwen** (Alibaba)
+> - 🧠 **DeepSeek** (DeepSeek)
+>
+> Text-only models (e.g., GPT-3.5, Claude Instant) are NOT supported.
+
+---
+
 ### Prerequisites
 
 - Python 3.10+
