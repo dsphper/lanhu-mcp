@@ -31,32 +31,19 @@
 
 
 🔥 **核心创新**：
-- 📋 **智能需求分析**：自动提取 Axure 原型，三种分析模式（开发/测试/探索），四阶段零遗漏工作流
+- 📋 **智能需求分析**：自动提取 Axure 原型，三种分析模式（开发/测试/探索），需求分析准确率>95%
 - 💬 **团队留言板**：打破 AI IDE 孤岛，让所有 AI 助手共享知识库和上下文
 - 🎨 **UI设计支持**：自动下载设计稿，智能提取切图，语义化命名
 - ⚡ **性能优化**：基于版本号的智能缓存，增量更新，并发处理
 
 🎯 **适用场景**：
-
-**国际主流AI IDE**：
-- ✅ **Cursor** - 让 Cursor AI 直接读取蓝湖需求文档和设计稿
-- ✅ **Windsurf** - Windsurf Cascade AI 直接读取蓝湖需求文档和设计稿
-- ✅ **Claude Desktop** - Claude AI 桌面应用直接读取蓝湖需求文档和设计稿
-- ✅ **Continue** - VSCode/JetBrains AI 编程助手
-- ✅ **Cline** - 功能强大的 VSCode AI 编程插件
-- ✅ **GitHub Copilot Workspace** - GitHub AI 开发环境
-
-**国产AI IDE与编程助手**：
-- ✅ **字节跳动 Trae** - 国内首款 AI 原生 IDE（豆包-1.5-pro）
-- ✅ **阿里云通义灵码** - 基于通义大模型的 AI 研发助手
-- ✅ **腾讯 CodeBuddy** - 全流程 AI 一体化工作台
-- ✅ **百度文心快码** - 百度 AI 编程助手
-- ✅ **快手 KwaiCoder** - 快手 AI 编程工具
-- ✅ **智谱 CodeGeeX** - 清华系 AI 编程助手
-- ✅ **华为云 CodeArts Snap** - 华为云 AI 编程助手
-- ✅ **商汤 SenseCode** - 商汤 AI 编程工具
-
-**其他支持 MCP 协议的 AI 开发工具**
+- ✅ Cursor + 蓝湖：让 Cursor AI 直接读取蓝湖需求文档和设计稿
+- ✅ Windsurf + 蓝湖：Windsurf Cascade AI 直接读取蓝湖需求文档和设计稿
+- ✅ Claude Code + 蓝湖：Claude AI 直接读取蓝湖需求文档和设计稿
+- ✅ Trae + 蓝湖：Trae AI 直接读取蓝湖需求文档和设计稿
+- ✅ 通义灵码 + 蓝湖：通义灵码 AI 直接读取蓝湖需求文档和设计稿
+- ✅ Cline + 蓝湖：Cline AI 直接读取蓝湖需求文档和设计稿
+- ✅ 任何支持 MCP 协议的 AI 开发工具
 
 🎯 **解决痛点**：
 - ❌ **旧世界**：每个开发者的 AI 独立工作，重复分析需求，无法共享经验
@@ -908,7 +895,7 @@ black lanhu_mcp_server.py
 
 ## 🏷️ 标签 Tags
 
-`lanhumcp` `蓝湖mcp` `lanhu-mcp` `蓝湖AI` `lanhu-ai` `mcp-server` `cursor-plugin` `windsurf-integration` `claude-integration` `trae-integration` `tongyi-lingma` `通义灵码` `codebuddy` `cline-plugin` `continue-plugin` `axure-automation` `requirement-analysis` `design-collaboration` `ai-development-tools` `model-context-protocol` `蓝湖插件` `蓝湖API` `AI需求分析` `设计协作` `前端开发工具` `后端开发工具` `字节AI编程` `阿里AI编程` `腾讯AI编程` `百度AI编程`
+`lanhumcp` `蓝湖mcp` `lanhu-mcp` `蓝湖AI` `lanhu-ai` `mcp-server` `cursor-plugin` `windsurf-integration` `claude-integration` `axure-automation` `requirement-analysis` `design-collaboration` `ai-development-tools` `model-context-protocol` `蓝湖插件` `蓝湖API` `AI需求分析` `设计协作` `前端开发工具` `后端开发工具`
 
 ---
 
@@ -917,27 +904,20 @@ black lanhu_mcp_server.py
 - **如何让 Cursor AI 读取蓝湖需求文档？** → 使用 Lanhu MCP Server
 - **Windsurf 怎么连接蓝湖？** → 配置本 MCP 服务器
 - **Claude Code 如何分析 Axure 原型？** → 通过 Lanhu MCP 集成
-- **字节 Trae 如何连接蓝湖？** → 使用本 MCP 服务器
-- **通义灵码怎么读取蓝湖设计稿？** → 配置 Lanhu MCP
-- **腾讯 CodeBuddy 支持蓝湖吗？** → 通过 MCP 协议连接
-- **百度文心快码如何集成蓝湖？** → 使用本项目
-- **Cline 插件怎么访问蓝湖？** → 配置 MCP 服务器
 - **蓝湖有 API 吗？** → 本项目提供 MCP 协议接口
 - **如何自动提取蓝湖切图？** → 使用本项目的切图工具
 - **AI 如何自动生成测试用例？** → 使用测试分析模式
 - **How to integrate Lanhu with Cursor?** → Install Lanhu MCP Server
 - **Lanhu API for AI tools?** → Use this MCP server
 - **Automated Axure analysis?** → Use this project
-- **Trae Lanhu integration?** → Configure this MCP server
-- **Tongyi Lingma Lanhu connection?** → Use Lanhu MCP
 
 ## 🔍 SEO 关键词索引
 
-**中文关键词**: 蓝湖mcp | lanhumcp | 蓝湖AI | 蓝湖插件 | 蓝湖API | 蓝湖Cursor | 蓝湖Windsurf | 蓝湖Claude | 蓝湖Trae | 蓝湖通义灵码 | 蓝湖CodeBuddy | 蓝湖文心快码 | 蓝湖Cline | 蓝湖Continue | 蓝湖需求文档 | 蓝湖Axure | 蓝湖切图 | 蓝湖设计稿 | AI需求分析 | AI测试用例 | MCP服务器 | 模型上下文协议 | 字节AI编程 | 阿里AI编程 | 腾讯AI编程 | 百度AI编程
+**中文关键词**: 蓝湖mcp | lanhumcp | 蓝湖AI | 蓝湖插件 | 蓝湖API | 蓝湖Cursor | 蓝湖Windsurf | 蓝湖Claude | 蓝湖需求文档 | 蓝湖Axure | 蓝湖切图 | 蓝湖设计稿 | AI需求分析 | AI测试用例 | MCP服务器 | 模型上下文协议
 
 **English Keywords**: lanhu mcp | lanhu-mcp | lanhu ai | lanhu cursor | lanhu windsurf | lanhu claude | lanhu api | lanhu integration | mcp server | model context protocol | axure automation | design collaboration | requirement analysis | ai development tools
 
-**适用人群**: 产品经理 | 前端开发 | 后端开发 | 测试工程师 | UI设计师 | Cursor用户 | Windsurf用户 | Claude用户 | Trae用户 | 通义灵码用户 | CodeBuddy用户 | 文心快码用户 | Cline用户 | Continue用户 | AI编程爱好者
+**适用人群**: 产品经理 | 前端开发 | 后端开发 | 测试工程师 | UI设计师 | 使用Cursor的开发者 | 使用Windsurf的开发者 | 使用Claude的开发者 | AI编程爱好者
 
 ---
 ## ⚠️ 免责声明
