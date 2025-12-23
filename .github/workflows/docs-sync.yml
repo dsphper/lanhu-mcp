@@ -179,11 +179,9 @@ jobs:
               # Add header comment if missing (helpful for users)
               if not content.startswith('#'):
                   today = datetime.now().strftime('%Y-%m-%d')
-                  header = f"""# Lanhu MCP Server Configuration
-# Last reviewed: {today}
-# Copy this file to .env and fill in your values
-
-"""
+                  header = "# Lanhu MCP Server Configuration\n"
+                  header += f"# Last reviewed: {today}\n"
+                  header += "# Copy this file to .env and fill in your values\n\n"
                   content = header + content
               
               if content != original:
