@@ -942,3 +942,5 @@ black lanhu_mcp_server.py
 - 详见 [LICENSE](LICENSE) 文件
 
 如有任何疑问或建议，欢迎通过 [GitHub Issues](https://github.com/dsphper/lanhu-mcp/issues) 与我们交流。
+
+<!-- Last checked: 2025-12-23 -->
