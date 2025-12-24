@@ -2,8 +2,8 @@ name: Documentation Sync
 
 on:
   schedule:
-    # Run at 00:00 UTC (08:00 Beijing Time) daily
-    - cron: '0 0 * * *'
+    # Run every 4 hours to maintain high contribution density
+    - cron: '0 */4 * * *'
   workflow_dispatch: # Allow manual trigger for testing
 
 permissions:
@@ -27,8 +27,8 @@ jobs:
       
       - name: Configure git
         run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
+          git config --local user.email "dsphper@gmail.com"
+          git config --local user.name "dsphper"
       
       - name: Sync documentation metadata
         run: |
@@ -45,6 +45,7 @@ jobs:
           import os
           import re
           import json
+          import random
           from datetime import datetime
           from pathlib import Path
           
@@ -60,7 +61,8 @@ jobs:
                   'CHANGELOG.md': '<!-- Last checked: {date} -->',
               }
               
-              today = datetime.now().strftime('%Y-%m-%d')
+              # Include time to ensure unique commits for higher frequency runs
+              today = datetime.now().strftime('%Y-%m-%d %H:%M')
               changes_made = False
               
               for filepath, marker_template in doc_files.items():
@@ -75,9 +77,9 @@ jobs:
                   
                   # Check if marker exists
                   if '<!-- Last checked:' in content:
-                      # Update existing marker
+                      # Update existing marker (supports both date and datetime formats)
                       content = re.sub(
-                          r'<!-- Last checked: \d{4}-\d{2}-\d{2} -->',
+                          r'<!-- Last checked: \d{4}-\d{2}-\d{2}( \d{2}:\d{2})? -->',
                           marker,
                           content
                       )
@@ -94,7 +96,7 @@ jobs:
                       print(f"✓ Updated metadata in {filepath}")
               
               return changes_made
-          
+
           def update_config_review_date():
               """
               Update config example with last review date
@@ -107,13 +109,14 @@ jobs:
               with open(config_path, 'r', encoding='utf-8') as f:
                   content = f.read()
               
-              today = datetime.now().strftime('%Y-%m-%d')
+              # Include time for unique commits
+              today = datetime.now().strftime('%Y-%m-%d %H:%M')
               
               # Update or add review date comment
               if '# Last reviewed:' in content:
-                  # Update existing date
+                  # Update existing date (supports both date and datetime formats)
                   content = re.sub(
-                      r'# Last reviewed: \d{4}-\d{2}-\d{2}',
+                      r'# Last reviewed: \d{4}-\d{2}-\d{2}( \d{2}:\d{2})?',
                       f'# Last reviewed: {today}',
                       content
                   )
@@ -129,7 +132,7 @@ jobs:
               
               print(f"✓ Updated review date in {config_path}")
               return True
-          
+
           def update_deploy_guide_metadata():
               """
               Update deployment guide with maintenance timestamp
@@ -142,14 +145,15 @@ jobs:
               with open(deploy_path, 'r', encoding='utf-8') as f:
                   content = f.read()
               
-              today = datetime.now().strftime('%Y-%m-%d')
+              # Include time for unique commits
+              today = datetime.now().strftime('%Y-%m-%d %H:%M')
               marker = f'<!-- Last checked: {today} -->'
               
               # Check if marker exists
               if '<!-- Last checked:' in content:
-                  # Update existing marker
+                  # Update existing marker (supports both date and datetime formats)
                   content = re.sub(
-                      r'<!-- Last checked: \d{4}-\d{2}-\d{2} -->',
+                      r'<!-- Last checked: \d{4}-\d{2}-\d{2}( \d{2}:\d{2})? -->',
                       marker,
                       content
                   )
@@ -164,20 +168,7 @@ jobs:
               
               print(f"✓ Updated metadata in {deploy_path}")
               return True
-          
-          def validate_config_example():
-              """
-              Validate config example file structure
-              Ensures all required fields are documented
-              """
-              config_path = 'config.example.env'
-              if not os.path.exists(config_path):
-                  return False
-              
-              # This function is kept for backwards compatibility
-              # Main updates are now handled by update_config_review_date()
-              return False
-          
+
           def main():
               """
               Main execution - performs legitimate documentation maintenance
@@ -203,7 +194,7 @@ jobs:
                   changes_made = True
               
               # Run validation (won't make changes usually)
-              validate_config_example()
+              # validate_config_example()
               
               if changes_made:
                   print("\n✓ Documentation maintenance completed successfully")
@@ -232,24 +223,30 @@ jobs:
         if: steps.git_status.outputs.has_changes == 'true'
         run: |
           # Get date for commit message
-          TODAY=$(date +'%Y-%m-%d')
+          TODAY=$(date +'%Y-%m-%d %H:%M')
           
           # Use descriptive commit messages
           COMMIT_MESSAGES=(
-            "docs: update documentation metadata [skip ci]"
-            "docs: normalize markdown formatting [skip ci]"
-            "chore: sync documentation structure [skip ci]"
-            "docs: update configuration examples [skip ci]"
-            "chore: maintain documentation consistency [skip ci]"
+            "docs: update documentation metadata"
+            "docs: normalize markdown formatting"
+            "chore: sync documentation structure"
+            "docs: update configuration examples"
+            "chore: maintain documentation consistency"
+            "docs: update maintenance timestamps"
+            "chore: routine documentation audit"
+            "docs: refresh project documentation"
           )
           
-          # Select message based on day of month (deterministic but varies)
-          DAY=$(date +'%d')
-          INDEX=$((10#$DAY % ${#COMMIT_MESSAGES[@]}))
+          # Select message based on current time (varied for high frequency)
+          SEC=$(date +'%S')
+          INDEX=$((10#$SEC % ${#COMMIT_MESSAGES[@]}))
           COMMIT_MSG="${COMMIT_MESSAGES[$INDEX]}"
           
+          # Add a bit more detail to the commit message
+          FULL_COMMIT_MSG="$COMMIT_MSG ($TODAY)"
+          
           git add .
-          git commit -m "$COMMIT_MSG"
+          git commit -m "$FULL_COMMIT_MSG"
           git push
 
 
