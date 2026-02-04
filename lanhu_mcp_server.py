@@ -1391,21 +1391,108 @@ class LanhuExtractor:
         # 3. 递归提取所有切图
         slices = []
 
-        def find_dds_images(obj, parent_name="", layer_path=""):
+        def find_slices(obj, parent_name="", layer_path=""):
+            """
+            递归查找切图，兼容新旧两种JSON结构
+
+            新版结构 (2026+):
+            - 根节点: artboard.layers[]
+            - 切图字段: image.imageUrl / image.svgUrl
+            - 图层类型: bitmapLayer, shapeLayer, textLayer, groupLayer
+
+            旧版结构 (2025-):
+            - 根节点: info[]
+            - 切图字段: ddsImage.imageUrl
+            """
             if not obj or not isinstance(obj, dict):
                 return
 
             current_name = obj.get('name', '')
             current_path = f"{layer_path}/{current_name}" if layer_path else current_name
 
-            # 检查是否有切图
-            if obj.get('ddsImage') and obj['ddsImage'].get('imageUrl'):
+            # 新版结构: 检查 image 字段 (优先)
+            if obj.get('image') and (obj['image'].get('imageUrl') or obj['image'].get('svgUrl')):
+                image_data = obj['image']
+
+                # 优先使用PNG格式，如果没有则使用SVG
+                download_url = image_data.get('imageUrl') or image_data.get('svgUrl')
+
+                # 计算尺寸 (从frame或bounds获取)
+                frame = obj.get('frame') or obj.get('bounds') or {}
+                width = frame.get('width', 0)
+                height = frame.get('height', 0)
+                size_str = f"{int(width)}x{int(height)}" if width and height else "unknown"
+
+                slice_info = {
+                    'id': obj.get('id'),
+                    'name': current_name,
+                    'type': obj.get('type') or obj.get('layerType') or 'bitmap',
+                    'download_url': download_url,
+                    'size': size_str,
+                    'format': 'png' if image_data.get('imageUrl') else 'svg',
+                }
+
+                # 添加位置信息
+                x = frame.get('x') or frame.get('left', 0)
+                y = frame.get('y') or frame.get('top', 0)
+                if x is not None or y is not None:
+                    slice_info['position'] = {
+                        'x': int(x),
+                        'y': int(y)
+                    }
+
+                # 添加父图层信息
+                if parent_name:
+                    slice_info['parent_name'] = parent_name
+
+                slice_info['layer_path'] = current_path
+
+                # 如果需要详细元数据
+                if include_metadata:
+                    metadata = {}
+
+                    # 填充颜色
+                    if obj.get('fills'):
+                        metadata['fills'] = obj['fills']
+
+                    # 边框
+                    if obj.get('borders') or obj.get('strokes'):
+                        metadata['borders'] = obj.get('borders') or obj.get('strokes')
+
+                    # 透明度
+                    if 'opacity' in obj:
+                        metadata['opacity'] = obj['opacity']
+
+                    # 旋转
+                    if obj.get('rotation'):
+                        metadata['rotation'] = obj['rotation']
+
+                    # 文本样式
+                    if obj.get('textStyle'):
+                        metadata['text_style'] = obj['textStyle']
+
+                    # 阴影
+                    if obj.get('shadows'):
+                        metadata['shadows'] = obj['shadows']
+
+                    # 圆角
+                    if obj.get('radius') or obj.get('cornerRadius'):
+                        metadata['border_radius'] = obj.get('radius') or obj.get('cornerRadius')
+
+                    if metadata:
+                        slice_info['metadata'] = metadata
+
+                slices.append(slice_info)
+
+            # 旧版结构: 检查 ddsImage 字段 (兼容)
+            elif obj.get('ddsImage') and obj['ddsImage'].get('imageUrl'):
                 slice_info = {
                     'id': obj.get('id'),
                     'name': current_name,
                     'type': obj.get('type') or obj.get('ddsType'),
                     'download_url': obj['ddsImage']['imageUrl'],
-                    'size': obj['ddsImage']['size'],
+                    'size': obj['ddsImage'].get('size', 'unknown'),
+                    'format': 'png',
                 }
 
                 # 添加位置信息
@@ -1458,24 +1545,30 @@ class LanhuExtractor:
 
                 slices.append(slice_info)
 
-            # 递归处理子图层
+            # 递归处理子图层 (新旧版通用)
             if obj.get('layers'):
                 for layer in obj['layers']:
-                    find_dds_images(layer, current_name, current_path)
+                    find_slices(layer, current_name, current_path)
 
-            # 递归处理所有对象属性
+            # 递归处理所有对象属性 (旧版兼容)
             for value in obj.values():
                 if isinstance(value, dict) and value != obj:
-                    find_dds_images(value, parent_name, layer_path)
+                    find_slices(value, parent_name, layer_path)
                 elif isinstance(value, list):
                     for item in value:
                         if isinstance(item, dict):
-                            find_dds_images(item, parent_name, layer_path)
+                            find_slices(item, parent_name, layer_path)
 
-        # 从info数组开始查找
-        if sketch_data.get('info'):
+        # 新版结构: 从 artboard.layers 开始查找 (优先)
+        if sketch_data.get('artboard') and sketch_data['artboard'].get('layers'):
+            artboard = sketch_data['artboard']
+            for layer in artboard['layers']:
+                find_slices(layer)
+
+        # 旧版结构: 从 info 数组开始查找 (兼容)
+        elif sketch_data.get('info'):
             for item in sketch_data['info']:
-                find_dds_images(item)
+                find_slices(item)
 
         return {
             'design_id': image_id,
