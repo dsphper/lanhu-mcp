@@ -3671,11 +3671,9 @@ async def lanhu_get_ai_analyze_design_result(
         
         for idx, img_r in enumerate(success_image_results, 1):
             summary_text += f"\n--- 设计图 {idx}：{img_r['design_name']} ---\n"
-            summary_text += f"   📷 Image: {img_r['screenshot_path']}\n"
-            
+
             html_r = success_html_results.get(img_r['design_name'])
             if html_r:
-                summary_text += f"   💻 HTML: {html_r['html_path']}\n"
                 summary_text += f"   📄 完整代码:\n"
                 summary_text += f"   ```html\n"
                 summary_text += html_r['html_code']
