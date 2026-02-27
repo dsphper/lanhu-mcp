@@ -125,11 +125,12 @@ echo 在 Cursor 中连接，请添加以下配置到 MCP 配置文件：
 echo {
 echo   "mcpServers": {
 echo     "lanhu": {
-echo       "url": "http://localhost:8000/mcp?role=开发&name=你的名字"
+echo       "url": "http://localhost:8000/mcp?role=Developer&name=YourName"
 echo     }
 echo   }
 echo }
 echo.
+echo 提示：部分 AI 开发工具不支持 URL 中使用中文参数值，建议使用英文
 echo 按 Ctrl+C 停止服务器
 echo.
 
@@ -151,4 +152,3 @@ if defined str (
 )
 endlocal & set "%~2=%len%"
 goto :eof
-

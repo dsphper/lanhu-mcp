@@ -261,10 +261,12 @@ if /i "!START_NOW!"=="y" (
     echo {
     echo   "mcpServers": {
     echo     "lanhu": {
-    echo       "url": "http://localhost:8000/mcp?role=开发&name=你的名字"
+    echo       "url": "http://localhost:8000/mcp?role=Developer&name=YourName"
     echo     }
     echo   }
     echo }
+    echo.
+    echo 提示：部分 AI 开发工具不支持 URL 中文参数，建议使用英文
     echo ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     echo.
     echo 配置方法：

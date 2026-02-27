@@ -262,11 +262,12 @@ if [ "$start_now" = "y" ] || [ "$start_now" = "Y" ]; then
 {
   "mcpServers": {
     "lanhu": {
-      "url": "http://localhost:8000/mcp?role=开发&name=你的名字"
+      "url": "http://localhost:8000/mcp?role=Developer&name=YourName"
     }
   }
 }
 MCP_CONFIG
+    echo -e "${YELLOW}提示：部分 AI 开发工具不支持 URL 中文参数，建议使用英文${NC}"
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
     echo -e "${BOLD}配置方法：${NC}"

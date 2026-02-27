@@ -372,14 +372,15 @@ cd lanhu-mcp-server
 # 或 quickstart.bat  # Windows
 
 # 3. 配置 Cursor
-# 在 MCP 配置中添加：
+# 在 MCP 配置中添加（建议使用英文参数）：
 {
   "mcpServers": {
     "lanhu": {
-      "url": "http://localhost:8000/mcp?role=开发&name=你的名字"
+      "url": "http://localhost:8000/mcp?role=Developer&name=YourName"
     }
   }
 }
+# 注意：部分 AI 工具不支持 URL 中文参数
 ```
 
 开始对话：

@@ -103,10 +103,12 @@ echo "在 Cursor 中连接，请添加以下配置到 MCP 配置文件："
 echo "{
   \"mcpServers\": {
     \"lanhu\": {
-      \"url\": \"http://localhost:8000/mcp?role=开发&name=你的名字\"
+      \"url\": \"http://localhost:8000/mcp?role=Developer&name=YourName\"
     }
   }
 }"
+echo ""
+echo "提示：部分 AI 开发工具不支持 URL 中文参数，建议使用英文"
 echo ""
 echo "按 Ctrl+C 停止服务器"
 echo ""

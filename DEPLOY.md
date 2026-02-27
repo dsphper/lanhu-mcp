@@ -61,7 +61,7 @@ curl http://localhost:8000/health
 
 ### 2. 访问 MCP 端点
 ```bash
-curl http://localhost:8000/mcp?role=开发&name=测试用户
+curl http://localhost:8000/mcp?role=Developer&name=TestUser
 ```
 
 ### 3. 查看日志确认
@@ -89,15 +89,16 @@ docker logs lanhu-mcp | grep "Server started"
 {
   "mcpServers": {
     "lanhu": {
-      "url": "http://localhost:8000/mcp?role=后端&name=张三"
+      "url": "http://localhost:8000/mcp?role=Backend&name=John"
     }
   }
 }
 ```
 
 **参数说明:**
-- `role`: 你的角色（后端/前端/测试/产品等）
+- `role`: 你的角色（Backend/Frontend/Tester/Product 等）
 - `name`: 你的姓名（用于团队协作和 @提醒）
+- ⚠️ **兼容性提示**：部分 AI 开发工具不支持 URL 中文参数，建议使用英文
 
 ### Claude Desktop 配置
 
@@ -107,7 +108,7 @@ docker logs lanhu-mcp | grep "Server started"
 {
   "mcpServers": {
     "lanhu": {
-      "url": "http://localhost:8000/mcp?role=开发&name=李四"
+      "url": "http://localhost:8000/mcp?role=Developer&name=Jane"
     }
   }
 }
@@ -432,7 +433,7 @@ docker-compose --env-file .env.dev up -d
 ### 2. 查看 MCP 工具列表
 
 ```bash
-curl http://localhost:8000/mcp?role=开发&name=测试 | jq '.tools[].name'
+curl http://localhost:8000/mcp?role=Developer&name=Test | jq '.tools[].name'
 ```
 
 ### 3. 监控服务健康

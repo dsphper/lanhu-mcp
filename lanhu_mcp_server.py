@@ -54,7 +54,9 @@ DEFAULT_COOKIE = "your_lanhu_cookie_here"  # 请替换为你的蓝湖Cookie，�
 COOKIE = os.getenv("LANHU_COOKIE", DEFAULT_COOKIE)
 
 BASE_URL = "https://lanhuapp.com"
+DDS_BASE_URL = "https://dds.lanhuapp.com"
 CDN_URL = "https://axure-file.lanhuapp.com"
+DDS_COOKIE = os.getenv("DDS_COOKIE", COOKIE)
 
 # 飞书机器人Webhook配置（支持环境变量）
 DEFAULT_FEISHU_WEBHOOK = "https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook-key-here"
@@ -127,6 +129,459 @@ ROLE_MAPPING_RULES = [
     # 开发（通用，优先级最低）
     (["开发", "dev", "developer", "程序员", "coder", "engineer", "工程师"], "开发"),
 ]
+
+
+# ==================== 设计图JSON转HTML转换器 ====================
+# 移植自 TypeScript converter.ts - 完全对齐蓝湖原生导出效果
+
+_UNITLESS_PROPERTIES = {'zIndex', 'fontWeight', 'opacity', 'flex', 'flexGrow', 'flexShrink', 'order'}
+
+COMMON_CSS_FOR_DESIGN = """
+body * {
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+body {
+  font-family: PingFangSC-Regular, Roboto, Helvetica Neue, Helvetica, Tahoma,
+    Arial, PingFang SC-Light, Microsoft YaHei;
+}
+input {
+  background-color: transparent;
+  border: 0;
+}
+button {
+  margin: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  outline: none;
+  background-color: transparent;
+}
+button:active {
+  opacity: 0.6;
+}
+.flex-col {
+  display: flex;
+  flex-direction: column;
+}
+.flex-row {
+  display: flex;
+  flex-direction: row;
+}
+.justify-start {
+  display: flex;
+  justify-content: flex-start;
+}
+.justify-center {
+  display: flex;
+  justify-content: center;
+}
+.justify-end {
+  display: flex;
+  justify-content: flex-end;
+}
+.justify-evenly {
+  display: flex;
+  justify-content: space-evenly;
+}
+.justify-around {
+  display: flex;
+  justify-content: space-around;
+}
+.justify-between {
+  display: flex;
+  justify-content: space-between;
+}
+.align-start {
+  display: flex;
+  align-items: flex-start;
+}
+.align-center {
+  display: flex;
+  align-items: center;
+}
+.align-end {
+  display: flex;
+  align-items: flex-end;
+}
+"""
+
+
+def _camel_to_kebab(s: str) -> str:
+    """驼峰命名转换为CSS短横线命名"""
+    return re.sub(r'([A-Z])', lambda m: f'-{m.group(1).lower()}', s)
+
+
+def _format_css_value(key: str, value) -> str:
+    """格式化CSS值，自动添加px单位"""
+    if value is None:
+        return ''
+    if isinstance(value, (int, float)):
+        if value == 0:
+            return '0'
+        return str(value) if key in _UNITLESS_PROPERTIES else f'{value}px'
+    if isinstance(value, str):
+        # 处理rgba格式
+        if 'rgba(' in value:
+            def replace_rgba(match):
+                r, g, b, a = match.groups()
+                alpha = float(a) if '.' in a else int(a)
+                return f'rgba({r}, {g}, {b}, {alpha})'
+            return re.sub(r'rgba\(([\d.]+),\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)', replace_rgba, value)
+        # 检查字符串形式的数字（fontSize可能是"14"或"14px"）
+        if re.match(r'^\d+$', value) and key not in _UNITLESS_PROPERTIES:
+            return '0' if value == '0' else f'{value}px'
+    return str(value)
+
+
+def _merge_padding(styles: dict) -> None:
+    """合并padding四边属性"""
+    pt = styles.get('paddingTop')
+    pr = styles.get('paddingRight')
+    pb = styles.get('paddingBottom')
+    pl = styles.get('paddingLeft')
+    
+    if pt is not None and pr is not None and pb is not None and pl is not None:
+        pt_val = pt or 0
+        pr_val = pr or 0
+        pb_val = pb or 0
+        pl_val = pl or 0
+        
+        if pt_val == pb_val and pl_val == pr_val:
+            if pt_val == pl_val:
+                styles['padding'] = f'{pt_val}px'
+            else:
+                styles['padding'] = f'{pt_val}px {pr_val}px'
+        else:
+            styles['padding'] = f'{pt_val}px {pr_val}px {pb_val}px {pl_val}px'
+        
+        for k in ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft']:
+            styles.pop(k, None)
+
+
+def _merge_margin(styles: dict) -> None:
+    """合并margin四边属性"""
+    mt = styles.get('marginTop')
+    mr = styles.get('marginRight')
+    mb = styles.get('marginBottom')
+    ml = styles.get('marginLeft')
+    
+    if mt is not None or mr is not None or mb is not None or ml is not None:
+        mt_val = mt or 0
+        mr_val = mr or 0
+        mb_val = mb or 0
+        ml_val = ml or 0
+        
+        if mt_val == 0 and mr_val == 0 and mb_val == 0 and ml_val == 0:
+            pass  # 全是0，不输出
+        elif mt_val == mb_val and ml_val == mr_val:
+            if mt_val == ml_val:
+                styles['margin'] = f'{mt_val}px'
+            else:
+                styles['margin'] = f'{mt_val}px {mr_val}px'
+        else:
+            styles['margin'] = f'{mt_val}px {mr_val}px {mb_val}px {ml_val}px'
+        
+        for k in ['marginTop', 'marginRight', 'marginBottom', 'marginLeft']:
+            styles.pop(k, None)
+
+
+def _should_use_flex(node: dict) -> bool:
+    """判断节点是否使用flex布局"""
+    if not node:
+        return False
+    node_style = node.get('style', {})
+    node_props = node.get('props', {})
+    node_props_style = node_props.get('style', {})
+    style = {**node_style, **node_props_style}
+    return style.get('display') == 'flex' or style.get('flexDirection') is not None
+
+
+def _get_flex_classes(node: dict) -> list:
+    """获取flex相关的CSS类名列表"""
+    classes = []
+    if not _should_use_flex(node):
+        return classes
+    
+    node_style = node.get('style', {})
+    node_props = node.get('props', {})
+    node_props_style = node_props.get('style', {})
+    style = {**node_style, **node_props_style}
+    class_name = node_props.get('className', '')
+    
+    # Flex方向
+    flex_direction = style.get('flexDirection')
+    if flex_direction == 'column' or 'flex-col' in class_name:
+        classes.append('flex-col')
+    elif flex_direction == 'row' or 'flex-row' in class_name:
+        classes.append('flex-row')
+    
+    # 主轴对齐
+    justify = node.get('alignJustify', {}).get('justifyContent') or style.get('justifyContent')
+    if justify == 'space-between':
+        classes.append('justify-between')
+    elif justify == 'center':
+        classes.append('justify-center')
+    elif justify == 'flex-end':
+        classes.append('justify-end')
+    elif justify == 'flex-start':
+        classes.append('justify-start')
+    elif justify == 'space-around':
+        classes.append('justify-around')
+    elif justify == 'space-evenly':
+        classes.append('justify-evenly')
+    
+    # 交叉轴对齐
+    align = node.get('alignJustify', {}).get('alignItems') or style.get('alignItems')
+    if align == 'flex-start':
+        classes.append('align-start')
+    elif align == 'center':
+        classes.append('align-center')
+    elif align == 'flex-end':
+        classes.append('align-end')
+    
+    return classes
+
+
+def _clean_styles(node: dict, flex_classes: list) -> dict:
+    """清理样式，移除被flex类覆盖的标准值"""
+    node_props = node.get('props', {})
+    props_style = node_props.get('style', {})
+    styles = {}
+    
+    # 定义被flex类完全覆盖的标准值
+    standard_justify = {'flex-start', 'center', 'flex-end', 'space-between', 'space-around', 'space-evenly'}
+    standard_align = {'flex-start', 'center', 'flex-end'}
+    
+    for key, value in props_style.items():
+        # 跳过display和flexDirection（由flex-col/flex-row类完全覆盖）
+        if key in ('display', 'flexDirection'):
+            if flex_classes:
+                continue
+        
+        # justifyContent: 只跳过标准值
+        if key == 'justifyContent' and flex_classes:
+            if value in standard_justify:
+                continue
+        
+        # alignItems: 只跳过标准值
+        if key == 'alignItems' and flex_classes:
+            if value in standard_align:
+                continue
+        
+        # 跳过static定位
+        if key == 'position' and value == 'static':
+            continue
+        
+        # 跳过visible溢出
+        if key == 'overflow' and value == 'visible':
+            continue
+        
+        styles[key] = value
+    
+    # 合并padding和margin
+    if any(k in styles for k in ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft']):
+        _merge_padding(styles)
+    if any(k in styles for k in ['marginTop', 'marginRight', 'marginBottom', 'marginLeft']):
+        _merge_margin(styles)
+    
+    return styles
+
+
+def _get_loop_arr(node: dict) -> list:
+    """取节点的 loop 数据：优先 loop，其次 loopData。"""
+    if not node:
+        return []
+    arr = node.get('loop') or node.get('loopData')
+    return arr if isinstance(arr, list) else []
+
+
+def _generate_css(node: dict, css_rules: dict, loop_suffixes: list | None = None) -> None:
+    """递归生成CSS规则。loop_suffixes 非空时，当前子树为循环模板，类名按 -0/-1/... 展开。"""
+    if not node:
+        return
+
+    loop_arr = _get_loop_arr(node) if node.get('loopType') else []
+    if loop_arr and not loop_suffixes:
+        loop_suffixes = [str(i) for i in range(len(loop_arr))]
+
+    node_props = node.get('props', {})
+    class_name = node_props.get('className')
+    if class_name:
+        flex_classes = _get_flex_classes(node)
+        styles = _clean_styles(node, flex_classes)
+        style_entries = list(styles.items())
+        if style_entries or node.get('type') == 'lanhutext':
+            css_props = []
+            for key, value in style_entries:
+                css_key = _camel_to_kebab(key)
+                css_value = _format_css_value(key, value)
+                if css_value:
+                    css_props.append(f'  {css_key}: {css_value};')
+            content = '\n'.join(css_props) if css_props else ''
+        else:
+            content = ''
+        if loop_suffixes:
+            for suf in loop_suffixes:
+                css_rules[f'{class_name}-{suf}'] = content
+        else:
+            css_rules[class_name] = content
+
+    children = node.get('children', [])
+    for child in children:
+        _generate_css(child, css_rules, loop_suffixes)
+
+
+def _resolve_loop_placeholder(value: str, loop_item: dict) -> str:
+    """this.item.xxx -> loop_item.get('xxx', '')"""
+    if not value or not isinstance(loop_item, dict):
+        return value or ''
+    s = str(value).strip()
+    m = re.match(r'^this\.item\.(\w+)$', s)
+    return loop_item.get(m.group(1), '') if m else value
+
+
+def _generate_html(
+    node: dict,
+    indent: int = 2,
+    loop_context: tuple[list, int] | None = None,
+) -> str:
+    """递归生成HTML结构。loop_context=(loop_list, index) 时当前为循环项，类名加 -index，占位符用 loop 数据替换。"""
+    if not node:
+        return ''
+
+    loop_item = loop_context[0][loop_context[1]] if loop_context else None
+    loop_index = loop_context[1] if loop_context else None
+
+    spaces = ' ' * indent
+    flex_classes = _get_flex_classes(node)
+    node_props = node.get('props', {})
+    class_name = node_props.get('className', '')
+    if loop_index is not None and class_name:
+        class_name = f'{class_name}-{loop_index}'
+    all_classes = ' '.join([c for c in [class_name] + flex_classes if c])
+
+    node_type = node.get('type')
+
+    if node_type == 'lanhutext':
+        text = node.get('data', {}).get('value') or node_props.get('text') or ''
+        if loop_item is not None and text and re.match(r'^this\.item\.\w+$', str(text).strip()):
+            text = _resolve_loop_placeholder(text, loop_item)
+        elif text and re.match(r'^this\.item\.\w+$', str(text).strip()):
+            text = ''
+        return f'{spaces}<span class="{all_classes}">{text}</span>'
+
+    if node_type == 'lanhuimage':
+        src = node.get('data', {}).get('value') or node_props.get('src') or ''
+        if loop_item is not None and src and re.match(r'^this\.item\.\w+$', str(src).strip()):
+            src = _resolve_loop_placeholder(src, loop_item)
+        elif src and re.match(r'^this\.item\.\w+$', str(src).strip()):
+            src = ''
+        return f'{spaces}<img\n{spaces}  class="{all_classes}"\n{spaces}  referrerpolicy="no-referrer"\n{spaces}  src="{src}"\n{spaces}/>'
+
+    if node_type == 'lanhubutton':
+        children = node.get('children', [])
+        children_html = '\n'.join([
+            _generate_html(c, indent + 2, loop_context) for c in children
+        ])
+        return f'{spaces}<button class="{all_classes}">\n{children_html}\n{spaces}</button>'
+
+    tag = 'div'
+    children = node.get('children', [])
+    loop_arr = _get_loop_arr(node) if node.get('loopType') else []
+
+    if loop_arr and loop_context is None:
+        parts = []
+        for i in range(len(loop_arr)):
+            ctx = (loop_arr, i)
+            for child in children:
+                parts.append(_generate_html(child, indent + 2, ctx))
+        children_html = '\n'.join(parts)
+        return f'{spaces}<{tag} class="{all_classes}">\n{children_html}\n{spaces}</{tag}>'
+
+    if children:
+        children_html = '\n'.join([
+            _generate_html(c, indent + 2, loop_context) for c in children
+        ])
+        return f'{spaces}<{tag} class="{all_classes}">\n{children_html}\n{spaces}</{tag}>'
+    return f'{spaces}<{tag} class="{all_classes}"></{tag}>'
+
+
+def convert_lanhu_to_html(json_data: dict) -> str:
+    """
+    将蓝湖设计图JSON转换为HTML+CSS
+    
+    Args:
+        json_data: 蓝湖设计图Schema JSON
+        
+    Returns:
+        完整的HTML字符串（含嵌入式CSS）
+    """
+    css_rules = {}
+    
+    # 生成CSS
+    _generate_css(json_data, css_rules)
+    
+    # 组装CSS字符串
+    css_parts = []
+    for class_name, props in css_rules.items():
+        if props:
+            css_parts.append(f'.{class_name} {{\n{props}\n}}')
+        else:
+            css_parts.append(f'.{class_name} {{\n}}')
+    
+    css_string = '\n\n'.join(css_parts)
+    css_string += COMMON_CSS_FOR_DESIGN
+    
+    # 生成HTML
+    body_html = _generate_html(json_data, 4)
+    
+    html = f'''<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+    <style>
+{css_string}
+    </style>
+  </head>
+  <body>
+{body_html}
+  </body>
+</html>'''
+    
+    return html
+
+
+def _minify_css(css: str) -> str:
+    """压缩 CSS：去掉注释、折叠空白。"""
+    css = re.sub(r'/\*[\s\S]*?\*/', '', css)
+    css = re.sub(r'\s+', ' ', css)
+    return css.strip()
+
+
+def minify_html(html: str) -> str:
+    """
+    压缩 HTML+CSS，与 lanhu-html-converter-mcp 的 html-minifier-terser 行为对齐，
+    用于减少返回体体积和 token 消耗。
+    """
+    try:
+        import htmlmin
+    except ImportError:
+        return html
+    # 先压缩 <style> 内 CSS（htmlmin 默认不压缩 style 内容）
+    def replace_style(match):
+        inner = _minify_css(match.group(1))
+        return f'<style>\n{inner}\n</style>'
+    html = re.sub(r'<style[^>]*>([\s\S]*?)</style>', replace_style, html, count=0)
+    return htmlmin.minify(
+        html,
+        remove_comments=True,
+        remove_empty_space=True,
+    )
+
+
+# ==================== 转换器结束 ====================
 
 
 def normalize_role(role: str) -> str:
@@ -1582,6 +2037,60 @@ class LanhuExtractor:
             'slices': slices
         }
 
+    async def _get_version_id_by_image_id(self, project_id: str, team_id: str, image_id: str) -> str:
+        """通过 multi_info 按 image_id 获取 version_id（与 lanhu-html-converter-mcp 一致）"""
+        url = f"{BASE_URL}/api/project/multi_info"
+        params = {
+            "project_id": project_id,
+            "team_id": team_id,
+            "img_limit": 500,
+            "detach": 1,
+        }
+        response = await self.client.get(url, params=params)
+        response.raise_for_status()
+        data = response.json()
+        if data.get("code") != "00000":
+            raise Exception(f"multi_info 失败: {data.get('msg', '未知错误')}")
+        images = (data.get("result") or {}).get("images") or []
+        for img in images:
+            if img.get("id") == image_id:
+                vid = img.get("latest_version")
+                if vid:
+                    return vid
+                raise Exception("该设计图无 latest_version")
+        raise Exception(f"未找到 image_id={image_id} 的设计图")
+
+    async def _fetch_dds_schema(self, version_id: str) -> dict:
+        """调用 DDS store_schema_revise 获取 data_resource_url，再拉取 schema JSON（与 lanhu-html-converter-mcp 一致）"""
+        dds_headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Referer": "https://dds.lanhuapp.com/",
+            "Cookie": DDS_COOKIE,
+            "Authorization": "Basic dW5kZWZpbmVkOg==",
+        }
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, headers=dds_headers, follow_redirects=True) as dds_client:
+            rev_url = f"{DDS_BASE_URL}/api/dds/image/store_schema_revise"
+            rev_resp = await dds_client.get(rev_url, params={"version_id": version_id})
+            rev_resp.raise_for_status()
+            rev_data = rev_resp.json()
+            if rev_data.get("code") != "00000":
+                raise Exception(f"store_schema_revise 失败: {rev_data.get('msg', '未知错误')}")
+            schema_url = (rev_data.get("data") or {}).get("data_resource_url")
+            if not schema_url:
+                raise Exception("store_schema_revise 未返回 data_resource_url")
+            schema_resp = await dds_client.get(schema_url)
+            schema_resp.raise_for_status()
+            return schema_resp.json()
+
+    async def get_design_schema_json(self, image_id: str, team_id: str, project_id: str) -> dict:
+        """
+        获取设计图的 Schema JSON（用于转换为 HTML）。
+        与 lanhu-html-converter-mcp 一致：multi_info -> version_id -> DDS store_schema_revise -> data_resource_url -> schema。
+        """
+        version_id = await self._get_version_id_by_image_id(project_id, team_id, image_id)
+        return await self._fetch_dds_schema(version_id)
+
     async def close(self):
         """关闭客户端"""
         await self.client.aclose()
@@ -3008,11 +3517,11 @@ async def lanhu_get_designs(
 @mcp.tool()
 async def lanhu_get_ai_analyze_design_result(
         url: Annotated[str, "Lanhu URL WITHOUT docId (indicates UI design project). Example: https://lanhuapp.com/web/#/item/project/stage?tid=xxx&pid=xxx"],
-        design_names: Annotated[Union[str, List[str]], "Design name(s) to analyze. Use 'all' for all designs, single name like '首页设计', or list like ['首页设计', '个人中心']. Get exact names from lanhu_get_designs first!"],
+        design_names: Annotated[Union[str, List[str]], "Design name(s) or index number(s). 'all' = all designs. Number (e.g. 6) = the 6th item in lanhu_get_designs list (by 'index' field), NOT by name prefix. Exact name (e.g. '6_friend页_挂件墙') = match by full name. Get names/index from lanhu_get_designs first."],
         ctx: Context = None
 ) -> List[Union[str, Image]]:
     """
-    [UI Design] Analyze Lanhu UI design images - GET VISUAL CONTENT
+    [UI Design] Analyze Lanhu UI design images - GET VISUAL CONTENT + HTML CODE
     
     USE THIS WHEN user says: UI设计图, 设计图, 设计稿, 视觉设计, UI稿, 看看设计, 帮我看设计图, 设计评审
     DO NOT USE for: 需求文档, PRD, 原型, 交互稿, Axure (use lanhu_get_ai_analyze_page_result instead)
@@ -3021,7 +3530,9 @@ async def lanhu_get_ai_analyze_design_result(
     WORKFLOW: First call lanhu_get_designs to get design list, then call this to analyze specific designs.
     
     Returns:
-        Visual representation of UI design images
+        Visual representation of UI design images AND HTML+CSS code for each design.
+        First block: summary text with "设计图 1/2/3..." and each design's HTML code.
+        Following blocks: images in the same order as 设计图 1, 2, 3... (image N = design N).
     """
     extractor = LanhuExtractor()
     try:
@@ -3043,13 +3554,29 @@ async def lanhu_get_ai_analyze_design_result(
 
         designs = designs_data['designs']
 
-        # 确定要截图的设计图
+        # 确定要截图的设计图：仅 all / 精准序号（数字=第 N 个）/ 精准名称，无模糊
         if isinstance(design_names, str) and design_names.lower() == 'all':
             target_designs = designs
         else:
             if isinstance(design_names, str):
                 design_names = [design_names]
-            target_designs = [d for d in designs if d['name'] in design_names]
+            seen_ids = set()
+            target_designs = []
+            for name in design_names:
+                name_str = str(name).strip()
+                if name_str.isdigit():
+                    n = int(name_str)
+                    for d in designs:
+                        if d.get('index') == n and d['id'] not in seen_ids:
+                            target_designs.append(d)
+                            seen_ids.add(d['id'])
+                            break
+                else:
+                    for d in designs:
+                        if d['name'] == name_str and d['id'] not in seen_ids:
+                            target_designs.append(d)
+                            seen_ids.add(d['id'])
+                            break
 
         if not target_designs:
             available_names = [d['name'] for d in designs]
@@ -3060,9 +3587,12 @@ async def lanhu_get_ai_analyze_design_result(
         output_dir = DATA_DIR / 'lanhu_designs' / params['project_id']
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # 下载设计图
-        results = []
+        # 下载设计图并生成HTML
+        image_results = []
+        html_results = []
+        
         for design in target_designs:
+            # ===== 1. 下载图片 =====
             try:
                 # 获取原图URL（去掉OSS处理参数）
                 img_url = design['url'].split('?')[0]
@@ -3072,19 +3602,52 @@ async def lanhu_get_ai_analyze_design_result(
                 response.raise_for_status()
 
                 # 保存文件
-                filename = f"{design['name']}.png"
-                filepath = output_dir / filename
+                img_filename = f"{design['name']}.png"
+                img_filepath = output_dir / img_filename
 
-                with open(filepath, 'wb') as f:
+                with open(img_filepath, 'wb') as f:
                     f.write(response.content)
 
-                results.append({
+                image_results.append({
                     'success': True,
                     'design_name': design['name'],
-                    'screenshot_path': str(filepath)
+                    'design_id': design['id'],
+                    'screenshot_path': str(img_filepath)
                 })
             except Exception as e:
-                results.append({
+                image_results.append({
+                    'success': False,
+                    'design_name': design['name'],
+                    'error': str(e)
+                })
+            
+            # ===== 2. 获取Schema并生成HTML =====
+            try:
+                # 获取设计图Schema JSON
+                schema_json = await extractor.get_design_schema_json(
+                    design['id'], 
+                    params['team_id'], 
+                    params['project_id']
+                )
+                
+                # 转换为 HTML 并压缩（与 TS 端一致，减少 token）
+                html_code = minify_html(convert_lanhu_to_html(schema_json))
+                
+                # 保存HTML文件
+                html_filename = f"{design['name']}.html"
+                html_filepath = output_dir / html_filename
+                
+                with open(html_filepath, 'w', encoding='utf-8') as f:
+                    f.write(html_code)
+                
+                html_results.append({
+                    'success': True,
+                    'design_name': design['name'],
+                    'html_path': str(html_filepath),
+                    'html_code': html_code,
+                })
+            except Exception as e:
+                html_results.append({
                     'success': False,
                     'design_name': design['name'],
                     'error': str(e)
@@ -3093,28 +3656,49 @@ async def lanhu_get_ai_analyze_design_result(
         # Build return content
         content = []
 
-        # Add summary text
-        summary_text = f"📊 Design Download\n"
+        # Add summary text (包含图片和HTML信息)
+        summary_text = f"📊 Design Analysis Results\n"
         summary_text += f"📁 Project: {designs_data['project_name']}\n"
-        summary_text += f"✓ {len([r for r in results if r['success']])}/{len(results)} designs\n\n"
+        summary_text += f"✓ {len([r for r in image_results if r['success']])}/{len(image_results)} images downloaded\n"
+        summary_text += f"✓ {len([r for r in html_results if r['success']])}/{len(html_results)} HTML codes generated\n\n"
 
-        # Show design list
+        # Show design list with both image and HTML info（每条加显式标题便于多图时对应）
         summary_text += "📋 Design List (display order from top to bottom):\n"
-        success_results = [r for r in results if r['success']]
-        for idx, r in enumerate(success_results, 1):
-            summary_text += f"{idx}. {r['design_name']}\n"
+        summary_text += "下方图片顺序与列表中「设计图 1」「设计图 2」… 一一对应，请按序号关联图片与代码。\n"
+        
+        success_image_results = [r for r in image_results if r['success']]
+        success_html_results = {r['design_name']: r for r in html_results if r['success']}
+        
+        for idx, img_r in enumerate(success_image_results, 1):
+            summary_text += f"\n--- 设计图 {idx}：{img_r['design_name']} ---\n"
+            summary_text += f"   📷 Image: {img_r['screenshot_path']}\n"
+            
+            html_r = success_html_results.get(img_r['design_name'])
+            if html_r:
+                summary_text += f"   💻 HTML: {html_r['html_path']}\n"
+                summary_text += f"   📄 完整代码:\n"
+                summary_text += f"   ```html\n"
+                summary_text += html_r['html_code']
+                summary_text += f"\n   ```\n"
 
-        # Show failed designs
-        failed_results = [r for r in results if not r['success']]
-        if failed_results:
-            summary_text += f"\n⚠️ Failed {len(failed_results)} designs:\n"
-            for r in failed_results:
+        # Show failed items
+        failed_image_results = [r for r in image_results if not r['success']]
+        failed_html_results = [r for r in html_results if not r['success']]
+        
+        if failed_image_results:
+            summary_text += f"\n⚠️ Failed to download {len(failed_image_results)} images:\n"
+            for r in failed_image_results:
+                summary_text += f"  ✗ {r['design_name']}: {r.get('error', 'Unknown')}\n"
+        
+        if failed_html_results:
+            summary_text += f"\n⚠️ Failed to generate {len(failed_html_results)} HTML codes:\n"
+            for r in failed_html_results:
                 summary_text += f"  ✗ {r['design_name']}: {r.get('error', 'Unknown')}\n"
 
         content.append(summary_text)
 
         # 添加成功的截图
-        for r in results:
+        for r in image_results:
             if r['success'] and 'screenshot_path' in r:
                 content.append(Image(path=r['screenshot_path']))
 

@@ -44,14 +44,15 @@ services:
 #    docker-compose up -d --build
 #
 # 6. 在 Cursor 中连接：
-#    添加以下配置到 Cursor 的 MCP 配置文件：
+#    添加以下配置到 Cursor 的 MCP 配置文件（建议使用英文参数）：
 #    {
 #      "mcpServers": {
 #        "lanhu": {
-#          "url": "http://localhost:8000/mcp?role=开发&name=你的名字"
+#          "url": "http://localhost:8000/mcp?role=Developer&name=YourName"
 #        }
 #      }
 #    }
+#    注意：部分 AI 开发工具不支持 URL 中文参数
 #
 # 7. 数据持久化：
 #    - ./data 目录：存储下载的资源、截图、缓存

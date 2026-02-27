@@ -4,4 +4,5 @@ beautifulsoup4>=4.12.0
 playwright>=1.48.0
 lxml>=5.0.0
 python-dotenv>=1.0.0
+htmlmin>=0.1.12
 

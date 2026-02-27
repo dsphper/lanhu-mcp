@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 设计图分析能力升级（Design Analysis）
+
+#### ✨ Added
+- **设计图分析能力质的提升**
+  - 分析设计图时可获取**详细设计参数**：组件尺寸、间距、颜色值、字体大小等精确数值，便于还原设计
+  - **设计图转代码**：自动将蓝湖设计 Schema 转为 HTML+CSS，与蓝湖原生导出效果对齐，AI 可直接参考实现
+  - 支持按**序号**（如 `6` 表示第 6 个）或**完整名称**（如 `6_friend页_挂件墙`）指定要分析的设计图
+  - 返回结果中图片与代码一一对应，便于 AI 关联视觉与实现
+
 ### 🎉 Initial Release Features
 
 #### ✨ Added
