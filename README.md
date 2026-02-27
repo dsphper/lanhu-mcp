@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🎨 Lanhu MCP Server | 蓝湖MCP服务器
+# 🎨 Lanhu MCP Server | 蓝湖MCP服务器2.0
 
 **让所有 AI 助手共享团队知识，打破 AI IDE 孤岛**
 
