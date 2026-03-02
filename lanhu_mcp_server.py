@@ -132,7 +132,6 @@ ROLE_MAPPING_RULES = [
 
 
 # ==================== 设计图JSON转HTML转换器 ====================
-# 移植自 TypeScript converter.ts - 完全对齐蓝湖原生导出效果
 
 _UNITLESS_PROPERTIES = {'zIndex', 'fontWeight', 'opacity', 'flex', 'flexGrow', 'flexShrink', 'order'}
 
