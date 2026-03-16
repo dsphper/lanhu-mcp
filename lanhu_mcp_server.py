@@ -4753,7 +4753,11 @@ async def lanhu_get_ai_analyze_design_result(
 
         designs = designs_data['designs']
 
-        # 确定要截图的设计图：仅 all / 精准序号（数字=第 N 个）/ 精准名称，无模糊
+        # 确定要截图的设计图：
+        # 1. 'all' - 所有设计图
+        # 2. 数字序号 - 第 N 个设计图（按 index 字段）
+        # 3. 精确名称 - 按 name 字段精确匹配
+        # 4. URL 中的 image_id - 按 id 字段匹配（当 design_names 为空或 None 时自动使用）
         if isinstance(design_names, str) and design_names.lower() == 'all':
             target_designs = designs
         else:
@@ -4761,7 +4765,11 @@ async def lanhu_get_ai_analyze_design_result(
                 design_names = [design_names]
             seen_ids = set()
             target_designs = []
-            for name in design_names:
+
+            # 如果 design_names 为空或 None，尝试使用 URL 中的 image_id
+            image_id_from_url = params.get('doc_id')  # parse_url 会把 image_id 解析为 doc_id
+
+            for name in (design_names or []):
                 name_str = str(name).strip()
                 if name_str.isdigit():
                     n = int(name_str)
@@ -4776,6 +4784,13 @@ async def lanhu_get_ai_analyze_design_result(
                             target_designs.append(d)
                             seen_ids.add(d['id'])
                             break
+
+            # 如果没有通过 design_names 匹配到设计图，尝试使用 URL 中的 image_id
+            if not target_designs and image_id_from_url:
+                for d in designs:
+                    if d.get('id') == image_id_from_url:
+                        target_designs.append(d)
+                        break
 
         if not target_designs:
             available_names = [d['name'] for d in designs]
@@ -5131,12 +5146,26 @@ async def lanhu_get_design_slices(
                 'message': designs_data.get('message', 'Failed to get designs')
             }
 
-        # 2. 查找指定的设计图
+        # 2. 解析URL获取参数（提前解析，用于后续匹配和 API 调用）
+        params = extractor.parse_url(url)
+        image_id_from_url = params.get('doc_id')  # parse_url 会把 image_id 解析为 doc_id
+
+        # 3. 查找指定的设计图
+        # 支持：精确名称匹配、image_id 匹配（当 design_name 为空或 URL 中有 image_id 时）
         target_design = None
+
+        # 先尝试按名称匹配
         for design in designs_data['designs']:
             if design['name'] == design_name:
                 target_design = design
                 break
+
+        # 如果名称没匹配到，尝试使用 URL 中的 image_id
+        if not target_design and image_id_from_url:
+            for design in designs_data['designs']:
+                if design.get('id') == image_id_from_url:
+                    target_design = design
+                    break
 
         if not target_design:
             available_names = [d['name'] for d in designs_data['designs']]
@@ -5145,9 +5174,6 @@ async def lanhu_get_design_slices(
                 'message': f"Design '{design_name}' does not exist",
                 'available_designs': available_names
             }
-
-        # 3. 解析URL获取参数
-        params = extractor.parse_url(url)
 
         # 4. 获取切图信息
         slices_data = await extractor.get_design_slices_info(
