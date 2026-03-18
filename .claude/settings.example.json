@@ -1,63 +1,61 @@
 {
   "$schema": "https://claude.ai/schema/settings.json",
+  "_comment": "Claude Code 项目配置示例 - 复制为 settings.local.json 使用",
+
   "permissions": {
+    "_comment": "权限配置 - allow 允许自动执行，deny 禁止执行",
     "allow": [
       "pip install",
-      "pip install -r",
+      "pip install -r requirements.txt",
       "pip show",
       "pip list",
-      "pip uninstall",
       "python lanhu_mcp_server.py",
       "python -m pytest",
-      "python -m pytest tests/",
-      "python -m pytest -v",
-      "python -m pytest --cov",
+      "python -m pytest tests/ -v --cov",
       "black lanhu_mcp_server.py",
-      "black tests/",
       "isort lanhu_mcp_server.py",
-      "isort tests/",
       "flake8 lanhu_mcp_server.py",
-      "flake8 tests/",
-      "playwright install",
       "playwright install chromium",
-      "docker-compose up",
+      "docker-compose up -d",
       "docker-compose down",
-      "docker-compose logs",
-      "docker-compose build",
-      "docker ps",
-      "docker images",
+      "docker-compose logs -f",
       "git status",
-      "git log",
       "git diff",
       "git add",
       "git commit",
       "git push",
-      "git pull",
-      "git branch",
-      "git checkout",
-      "git merge",
-      "ls",
-      "cat",
-      "mkdir",
-      "rm"
+      "git pull"
     ],
     "deny": [
       "git push --force",
-      "git reset --hard",
-      "rm -rf /"
+      "git reset --hard origin",
+      "rm -rf .git"
     ]
   },
+
   "env": {
+    "_comment": "环境变量配置",
     "PYTHONIOENCODING": "utf-8",
     "PYTHONUNBUFFERED": "1"
   },
+
   "apiConfiguration": {
+    "_comment": "API 配置（可选）",
     "baseURL": "https://api.anthropic.com"
   },
+
   "mcpServers": {
+    "_comment": "MCP 服务器配置",
     "lanhu": {
-      "url": "http://localhost:8000/mcp",
+      "url": "http://localhost:8000/mcp?role=Developer&name=YourName",
       "disabled": false
     }
+  },
+
+  "hooks": {
+    "_comment": "钩子配置（可选）- 在特定事件时执行命令",
+    "PreToolUse": [],
+    "PostToolUse": [],
+    "Notification": []
   }
 }
