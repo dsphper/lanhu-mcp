@@ -1,5 +1,4 @@
 {
-  "$schema": "https://claude.ai/schema/settings.json",
   "plugins": {
     "enabled": [
       "python",
@@ -13,49 +12,9 @@
   },
   "permissions": {
     "allow": [
-      "pip install",
-      "pip install -r",
-      "pip show",
-      "pip list",
-      "pip uninstall",
-      "python lanhu_mcp_server.py",
-      "python -m pytest",
-      "python -m pytest tests/",
-      "python -m pytest -v",
-      "python -m pytest --cov",
-      "black lanhu_mcp_server.py",
-      "black tests/",
-      "isort lanhu_mcp_server.py",
-      "isort tests/",
-      "flake8 lanhu_mcp_server.py",
-      "flake8 tests/",
-      "playwright install",
-      "playwright install chromium",
-      "docker-compose up",
-      "docker-compose down",
-      "docker-compose logs",
-      "docker-compose build",
-      "docker ps",
-      "docker images",
-      "git status",
-      "git log",
-      "git diff",
-      "git add",
-      "git commit",
-      "git push",
-      "git pull",
-      "git branch",
-      "git checkout",
-      "git merge",
-      "ls",
-      "cat",
-      "mkdir",
-      "rm"
+      "Bash(pip install)"
     ],
     "deny": [
-      "git push --force",
-      "git reset --hard",
-      "rm -rf /"
     ]
   },
   "env": {
