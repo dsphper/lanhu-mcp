@@ -1,0 +1,24 @@
+{
+  "$schema": "https://claude.ai/schema/settings.json",
+  "permissions": {
+    "allow": [
+      "pip install",
+      "pip show",
+      "pip list",
+      "python lanhu_mcp_server.py",
+      "python -m pytest",
+      "python -m pytest tests/",
+      "black lanhu_mcp_server.py",
+      "isort lanhu_mcp_server.py",
+      "flake8 lanhu_mcp_server.py",
+      "playwright install",
+      "docker-compose up",
+      "docker-compose down",
+      "docker-compose logs"
+    ],
+    "deny": []
+  },
+  "env": {
+    "PYTHONIOENCODING": "utf-8"
+  }
+}
