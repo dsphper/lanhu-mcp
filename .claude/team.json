@@ -1,0 +1,44 @@
+{
+  "$schema": "https://claude.ai/schema/team.json",
+  "version": "1.0.0",
+  "team": {
+    "name": "My Team",
+    "description": "团队配置文件，用于 Lanhu MCP 团队协作功能"
+  },
+  "roles": {
+    "valid": ["后端", "前端", "客户端", "开发", "运维", "产品", "项目经理", "测试", "设计"],
+    "mapping": {
+      "backend": "后端",
+      "frontend": "前端",
+      "developer": "开发",
+      "devops": "运维",
+      "pm": "产品",
+      "qa": "测试",
+      "designer": "设计"
+    }
+  },
+  "members": [
+    {
+      "name": "张三",
+      "role": "后端",
+      "feishu_id": "",
+      "email": ""
+    },
+    {
+      "name": "李四",
+      "role": "前端",
+      "feishu_id": "",
+      "email": ""
+    },
+    {
+      "name": "王五",
+      "role": "测试",
+      "feishu_id": "",
+      "email": ""
+    }
+  ],
+  "notifications": {
+    "feishu_webhook": "",
+    "enabled": false
+  }
+}

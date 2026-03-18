@@ -7,6 +7,7 @@ __pycache__/
 venv/
 .env
 uv.lock
+.claude/team.local.json
 
 # Test/coverage
 .pytest_cache/

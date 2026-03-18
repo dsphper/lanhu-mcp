@@ -1,0 +1,39 @@
+{
+  "$schema": "https://claude.ai/schema/team.json",
+  "version": "1.0.0",
+  "_comment": "这是团队配置示例文件，请复制为 team.local.json 并填入实际值",
+
+  "team": {
+    "name": "Your Team Name",
+    "description": "团队配置说明"
+  },
+
+  "roles": {
+    "valid": ["后端", "前端", "客户端", "开发", "运维", "产品", "项目经理", "测试", "设计"],
+    "mapping": {
+      "backend": "后端",
+      "frontend": "前端",
+      "client": "客户端",
+      "developer": "开发",
+      "devops": "运维",
+      "product": "产品",
+      "pm": "项目经理",
+      "qa": "测试",
+      "designer": "设计"
+    }
+  },
+
+  "members": [
+    {
+      "name": "成员姓名",
+      "role": "后端",
+      "feishu_id": "飞书用户ID（可选）",
+      "email": "邮箱（可选）"
+    }
+  ],
+
+  "notifications": {
+    "feishu_webhook": "https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook-key",
+    "enabled": true
+  }
+}
