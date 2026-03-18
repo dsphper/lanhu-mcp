@@ -1,5 +1,16 @@
 {
   "$schema": "https://claude.ai/schema/settings.json",
+  "plugins": {
+    "enabled": [
+      "python",
+      "mcp",
+      "git",
+      "docker",
+      "http",
+      "playwright"
+    ],
+    "disabled": []
+  },
   "permissions": {
     "allow": [
       "pip install",

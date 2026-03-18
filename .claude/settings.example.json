@@ -2,6 +2,27 @@
   "$schema": "https://claude.ai/schema/settings.json",
   "_comment": "Claude Code 项目配置示例 - 复制为 settings.local.json 使用",
 
+  "plugins": {
+    "_comment": "插件配置 - 根据项目类型启用相关插件",
+    "_description": {
+      "python": "Python 开发支持（代码补全、类型检查、虚拟环境）",
+      "mcp": "MCP 协议支持（服务器开发、工具调试）",
+      "git": "Git 版本控制支持",
+      "docker": "Docker 容器支持",
+      "http": "HTTP 客户端支持（API 测试、调试）",
+      "playwright": "Playwright 浏览器自动化支持"
+    },
+    "enabled": [
+      "python",
+      "mcp",
+      "git",
+      "docker",
+      "http",
+      "playwright"
+    ],
+    "disabled": []
+  },
+
   "permissions": {
     "_comment": "权限配置 - allow 允许自动执行，deny 禁止执行",
     "allow": [
