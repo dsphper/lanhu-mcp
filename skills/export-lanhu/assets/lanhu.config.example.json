@@ -1,0 +1,8 @@
+{
+  "cookie": "你的蓝湖 Cookie（必填，从浏览器开发者工具获取）",
+  "output_base_dir": "docs/lanhu/pages",
+  "include_slices": true,
+  "include_preview": true,
+  "download_concurrent": 5,
+  "timeout": 30
+}
