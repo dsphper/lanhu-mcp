@@ -71,14 +71,15 @@ class LanhuAPI:
                 key, value = part.split('=', 1)
                 params[key] = value
 
-        team_id = params.get('tid')
-        project_id = params.get('pid')
-        doc_id = params.get('docId') or params.get('image_id')
+        # 支持多种参数名格式
+        team_id = params.get('tid') or params.get('teamId')
+        project_id = params.get('pid') or params.get('projectId')
+        doc_id = params.get('docId') or params.get('image_id') or params.get('imageId')
 
         if not project_id:
-            raise ValueError("URL parsing failed: missing required param pid")
+            raise ValueError("URL parsing failed: missing required param pid/projectId")
         if not team_id:
-            raise ValueError("URL parsing failed: missing required param tid")
+            raise ValueError("URL parsing failed: missing required param tid/teamId")
 
         return {
             'team_id': team_id,
