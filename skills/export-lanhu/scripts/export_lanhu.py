@@ -349,12 +349,12 @@ async def export_lanhu(
             )
             design_results.append(result)
 
-        # 6. 下载切图（从 sketch.json 中提取）
+        # 6. 下载切图（从 sketch.json 中提取，按设计图分组保存）
         slice_count = 0
         if include_slices:
             print("🖼️ Downloading slices...")
-            slices_dir = output_dir / 'slices'
-            slices_dir.mkdir(exist_ok=True)
+            slices_base_dir = output_dir / 'slices'
+            slices_base_dir.mkdir(exist_ok=True)
 
             for design in designs:
                 design_name = sanitize_filename(design.get('name', 'unknown'))
@@ -368,16 +368,21 @@ async def export_lanhu(
                     # 从 sketch.json 提取切图
                     slices = extract_slices_from_sketch(sketch_data)
 
-                    for slice_item in slices:
-                        ext = slice_item.get('format', 'png')
-                        slice_name = f"{sanitize_filename(slice_item['name'])}.{ext}"
-                        success = await download_file(
-                            api.client,
-                            slice_item['url'],
-                            slices_dir / slice_name
-                        )
-                        if success:
-                            slice_count += 1
+                    if slices:
+                        # 按设计图创建子目录
+                        design_slices_dir = slices_base_dir / design_name
+                        design_slices_dir.mkdir(exist_ok=True)
+
+                        for slice_item in slices:
+                            ext = slice_item.get('format', 'png')
+                            slice_name = f"{sanitize_filename(slice_item['name'])}.{ext}"
+                            success = await download_file(
+                                api.client,
+                                slice_item['url'],
+                                design_slices_dir / slice_name
+                            )
+                            if success:
+                                slice_count += 1
 
         # 7. 生成 meta.json
         meta = {
