@@ -1147,13 +1147,13 @@ def find_slices(designs_dir: Path, design_name: str) -> list[tuple[str, str, int
     return slices
 
 
-def analyze_design(design_dir: Path, output_dir: Path, framework: str) -> bool:
-    """分析单个设计"""
+def analyze_design(design_dir: Path, output_dir: Path, framework: str) -> dict | None:
+    """分析单个设计，返回提取的数据"""
     sketch_path = design_dir / 'sketch.json'
 
     if not sketch_path.exists():
         print(f"  ⚠️ sketch.json not found in {design_dir}")
-        return False
+        return None
 
     print(f"  📊 Analyzing: {design_dir.name}")
 
@@ -1178,11 +1178,18 @@ def analyze_design(design_dir: Path, output_dir: Path, framework: str) -> bool:
         # 查找切图
         slices = find_slices(design_dir.parent, design_dir.name)
 
-        return True
+        # 返回提取的数据用于汇总
+        return {
+            'colors': extractor.get_top_colors(50),
+            'fonts': extractor.get_top_fonts(50),
+            'slices': slices,
+        }
 
     except Exception as e:
         print(f"  ❌ Error analyzing {design_dir.name}: {e}")
-        return False
+        import traceback
+        traceback.print_exc()
+        return None
 
 
 def main():
@@ -1233,18 +1240,39 @@ def main():
 
     success_count = 0
     for design_dir in design_dirs:
-        if analyze_design(design_dir, output_dir, args.framework):
+        result = analyze_design(design_dir, output_dir, args.framework)
+        if result:
+            # 收集样式和切图
+            all_colors.extend(result.get('colors', []))
+            all_fonts.extend(result.get('fonts', []))
+            all_slices.extend(result.get('slices', []))
             success_count += 1
 
     # 生成汇总文件
     print("\n📝 Generating summary files...")
+
+    # 去重颜色和字体
+    seen_colors = set()
+    unique_colors = []
+    for name, hex_val in all_colors:
+        if hex_val not in seen_colors:
+            seen_colors.add(hex_val)
+            unique_colors.append((name, hex_val))
+
+    seen_fonts = set()
+    unique_fonts = []
+    for name, font in all_fonts:
+        key = f"{font.name}-{font.size}-{font.weight}"
+        if key not in seen_fonts:
+            seen_fonts.add(key)
+            unique_fonts.append((name, font))
 
     # 切图索引
     slices_md = MarkdownGenerator(args.framework).generate_slices_md(all_slices)
     (output_dir / 'slices.md').write_text(slices_md, encoding='utf-8')
 
     # 样式汇总
-    styles_md = MarkdownGenerator(args.framework).generate_styles_md(all_colors[:20], all_fonts[:20])
+    styles_md = MarkdownGenerator(args.framework).generate_styles_md(unique_colors[:20], unique_fonts[:20])
     (output_dir / 'styles.md').write_text(styles_md, encoding='utf-8')
 
     # 组件详情（简化版）
