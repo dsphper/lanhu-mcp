@@ -3,10 +3,17 @@ sketch.json 解析器
 """
 import json
 from pathlib import Path
+from typing import Any
+
 from models import (
     Layer, Frame, Style, Fill, Border, Shadow, Color,
     Radius, TextContent, Font, ImageRef
 )
+
+
+class ParseError(Exception):
+    """解析错误"""
+    pass
 
 
 class LayerParser:
@@ -17,8 +24,18 @@ class LayerParser:
         self.data = self._load_json()
 
     def _load_json(self) -> dict:
-        with open(self.sketch_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        # 验证文件存在
+        if not self.sketch_path.exists():
+            raise ParseError(f"sketch.json not found: {self.sketch_path}")
+
+        # 加载并解析 JSON
+        try:
+            with open(self.sketch_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except json.JSONDecodeError as e:
+            raise ParseError(
+                f"Invalid JSON in {self.sketch_path}: {e.msg} at line {e.lineno}"
+            ) from e
 
     def parse(self) -> Layer:
         """解析返回根图层"""
@@ -115,23 +132,27 @@ class LayerParser:
 
     def _parse_color(self, data: dict) -> Color:
         return Color(
-            r=data.get('r', 0),
-            g=data.get('g', 0),
-            b=data.get('b', 0),
-            a=data.get('a', 1.0),
+            r=int(data.get('r', 0)),
+            g=int(data.get('g', 0)),
+            b=int(data.get('b', 0)),
+            a=float(data.get('a', 1.0)),
             value=data.get('value', '')
         )
 
     def _parse_text(self, data: dict) -> TextContent:
-        style = data.get('style', {})
-        font_data = style.get('font', {})
+        style = data.get('style', {}) or {}
+        font_data = style.get('font', {}) or {}
+
+        # 安全获取嵌套值
+        line_height_data = font_data.get('lineHeight') or {}
+        letter_spacing_data = font_data.get('letterSpacing') or {}
 
         font = Font(
             name=font_data.get('name', 'sans-serif'),
             size=font_data.get('size', 14),
             weight=font_data.get('type', 'Regular'),
-            line_height=font_data.get('lineSpacing', font_data.get('lineHeight', {}).get('value', 20)),
-            letter_spacing=font_data.get('letterSpacing', {}).get('value', 0),
+            line_height=font_data.get('lineSpacing', line_height_data.get('value', 20)),
+            letter_spacing=letter_spacing_data.get('value', 0),
             align=font_data.get('align', 'left')
         )
 
