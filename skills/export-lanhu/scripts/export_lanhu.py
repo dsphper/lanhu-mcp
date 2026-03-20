@@ -331,6 +331,33 @@ async def export_lanhu(
         await api.close()
 
 
+def find_project_root(start_path: Path = None) -> Path:
+    """
+    从给定路径向上查找项目根目录（包含 .claude 文件夹的目录）
+
+    Args:
+        start_path: 起始路径，默认为当前工作目录
+
+    Returns:
+        项目根目录路径
+
+    Raises:
+        FileNotFoundError: 如果找不到项目根目录
+    """
+    if start_path is None:
+        start_path = Path.cwd()
+
+    current = start_path.resolve()
+
+    while current != current.parent:
+        if (current / '.claude').is_dir():
+            return current
+        current = current.parent
+
+    # 如果到达根目录都没找到，返回当前目录
+    return start_path
+
+
 def main():
     parser = argparse.ArgumentParser(description='导出蓝湖设计数据')
     parser.add_argument('url', help='蓝湖 URL')
@@ -340,8 +367,8 @@ def main():
 
     args = parser.parse_args()
 
-    # 查找项目根目录（当前目录或父目录）
-    project_root = Path.cwd()
+    # 查找项目根目录（向上搜索包含 .claude 文件夹的目录）
+    project_root = find_project_root()
 
     # 加载配置
     try:
