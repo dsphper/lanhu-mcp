@@ -41,11 +41,85 @@ def load_config(project_root: Path) -> dict:
 
 
 def sanitize_filename(name: str) -> str:
-    """清理文件名，移除非法字符"""
+    """清理文件名，移除非法字符和空格"""
     invalid_chars = '<>:"/\\|?*'
     for char in invalid_chars:
         name = name.replace(char, '_')
+    # 替换空格为下划线
+    name = name.replace(' ', '_')
     return name.strip()
+
+
+def extract_slices_from_sketch(sketch_data: dict) -> list:
+    """
+    从 sketch.json 中递归提取所有切图
+
+    Args:
+        sketch_data: sketch.json 数据
+
+    Returns:
+        切图列表，每个元素包含 name, url, width, height, format
+    """
+    slices = []
+
+    def find_slices(obj, layer_path=""):
+        """递归查找切图"""
+        if not obj or not isinstance(obj, dict):
+            return
+
+        current_name = obj.get('name', 'unnamed')
+        current_path = f"{layer_path}/{current_name}" if layer_path else current_name
+
+        # 检查 image 字段 (PNG/SVG)
+        if obj.get('image'):
+            image_data = obj['image']
+            # 优先使用 PNG，其次 SVG
+            download_url = image_data.get('imageUrl') or image_data.get('svgUrl')
+            if download_url:
+                frame = obj.get('frame') or obj.get('bounds') or {}
+                width = frame.get('width', 0)
+                height = frame.get('height', 0)
+
+                slices.append({
+                    'name': current_name,
+                    'url': download_url,
+                    'width': int(width) if width else 0,
+                    'height': int(height) if height else 0,
+                    'format': 'png' if image_data.get('imageUrl') else 'svg',
+                    'layer_path': current_path
+                })
+
+        # 检查 ddsImage 字段 (旧版兼容)
+        elif obj.get('ddsImage') and obj['ddsImage'].get('imageUrl'):
+            frame = obj.get('frame') or obj.get('bounds') or {}
+            width = frame.get('width', 0)
+            height = frame.get('height', 0)
+
+            slices.append({
+                'name': current_name,
+                'url': obj['ddsImage']['imageUrl'],
+                'width': int(width) if width else 0,
+                'height': int(height) if height else 0,
+                'format': 'png',
+                'layer_path': current_path
+            })
+
+        # 递归处理子图层
+        children = obj.get('layers') or obj.get('children') or []
+        for child in children:
+            find_slices(child, current_path)
+
+    # 从新版结构 (artboard.layers) 提取
+    if sketch_data.get('artboard') and sketch_data['artboard'].get('layers'):
+        for layer in sketch_data['artboard']['layers']:
+            find_slices(layer)
+
+    # 从旧版结构 (info[]) 提取
+    elif sketch_data.get('info'):
+        for item in sketch_data['info']:
+            find_slices(item)
+
+    return slices
 
 
 def generate_output_dir(project_name: str, base_dir: Path) -> Path:
@@ -275,7 +349,7 @@ async def export_lanhu(
             )
             design_results.append(result)
 
-        # 6. 下载切图
+        # 6. 下载切图（从 sketch.json 中提取）
         slice_count = 0
         if include_slices:
             print("🖼️ Downloading slices...")
@@ -283,20 +357,27 @@ async def export_lanhu(
             slices_dir.mkdir(exist_ok=True)
 
             for design in designs:
-                slices = await api.get_slices_info(
-                    design['id'],
-                    team_id,
-                    project_id
-                )
-                for slice_item in slices:
-                    slice_name = f"{sanitize_filename(slice_item['name'])}_{slice_item['scale']}.png"
-                    success = await download_file(
-                        api.client,
-                        slice_item['url'],
-                        slices_dir / slice_name
-                    )
-                    if success:
-                        slice_count += 1
+                design_name = sanitize_filename(design.get('name', 'unknown'))
+                sketch_path = designs_dir / design_name / 'sketch.json'
+
+                # 读取已下载的 sketch.json
+                if sketch_path.exists():
+                    with open(sketch_path, 'r', encoding='utf-8') as f:
+                        sketch_data = json.load(f)
+
+                    # 从 sketch.json 提取切图
+                    slices = extract_slices_from_sketch(sketch_data)
+
+                    for slice_item in slices:
+                        ext = slice_item.get('format', 'png')
+                        slice_name = f"{sanitize_filename(slice_item['name'])}.{ext}"
+                        success = await download_file(
+                            api.client,
+                            slice_item['url'],
+                            slices_dir / slice_name
+                        )
+                        if success:
+                            slice_count += 1
 
         # 7. 生成 meta.json
         meta = {
