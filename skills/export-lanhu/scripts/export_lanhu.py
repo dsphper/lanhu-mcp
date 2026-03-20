@@ -217,34 +217,48 @@ async def export_lanhu(
     api = LanhuAPI(cookie, timeout)
 
     try:
-        # 1. 获取页面列表
-        print("📄 Fetching pages list...")
-        pages_data = await api.get_pages_list(url)
-        project_name = pages_data.get('document_name', 'Unknown')
+        # 解析 URL 参数
+        params = api.parse_url(url)
+        team_id = params['team_id']
+        project_id = params['project_id']
+        doc_id = params.get('doc_id')
+
+        # 判断是否有文档 ID（原型文档 vs 设计图项目）
+        pages_data = None
+        page_count = 0
+
+        if doc_id:
+            # 1a. 获取页面列表（原型文档）
+            print("📄 Fetching pages list...")
+            pages_data = await api.get_pages_list(url)
+            project_name = pages_data.get('document_name', 'Unknown')
+            page_count = len(pages_data.get('pages', []))
+        else:
+            # 1b. 设计图项目，无页面
+            print("📄 Design project (no pages)...")
+            project_name = f"DesignProject-{project_id[:8]}"
 
         # 2. 生成输出目录
         output_dir = generate_output_dir(project_name, output_base_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         print(f"📁 Output directory: {output_dir}")
 
-        # 3. 保存页面数据
-        print("📝 Saving pages data...")
-        pages_dir = output_dir / 'pages'
-        pages_dir.mkdir(exist_ok=True)
+        # 3. 保存页面数据（如果有）
+        if pages_data and pages_data.get('pages'):
+            print("📝 Saving pages data...")
+            pages_dir = output_dir / 'pages'
+            pages_dir.mkdir(exist_ok=True)
 
-        for page in pages_data.get('pages', []):
-            page_dir = pages_dir / sanitize_filename(page['name'])
-            page_dir.mkdir(exist_ok=True)
+            for page in pages_data.get('pages', []):
+                page_dir = pages_dir / sanitize_filename(page['name'])
+                page_dir.mkdir(exist_ok=True)
 
-            with open(page_dir / 'page.json', 'w', encoding='utf-8') as f:
-                json.dump(page, f, ensure_ascii=False, indent=2)
+                with open(page_dir / 'page.json', 'w', encoding='utf-8') as f:
+                    json.dump(page, f, ensure_ascii=False, indent=2)
 
         # 4. 获取设计列表
         print("🎨 Fetching designs list...")
-        designs = await api.get_design_list(
-            pages_data['team_id'],
-            pages_data['project_id']
-        )
+        designs = await api.get_design_list(team_id, project_id)
 
         # 5. 下载设计数据
         print(f"📦 Downloading {len(designs)} designs...")
@@ -254,8 +268,8 @@ async def export_lanhu(
         design_results = []
         for i, design in enumerate(designs, 1):
             print(f"  [{i}/{len(designs)}] {design.get('name', 'unknown')}")
-            design['team_id'] = pages_data['team_id']
-            design['project_id'] = pages_data['project_id']
+            design['team_id'] = team_id
+            design['project_id'] = project_id
             result = await download_design_data(
                 api, design, designs_dir, include_preview
             )
@@ -271,8 +285,8 @@ async def export_lanhu(
             for design in designs:
                 slices = await api.get_slices_info(
                     design['id'],
-                    pages_data['team_id'],
-                    pages_data['project_id']
+                    team_id,
+                    project_id
                 )
                 for slice_item in slices:
                     slice_name = f"{sanitize_filename(slice_item['name'])}_{slice_item['scale']}.png"
@@ -288,10 +302,10 @@ async def export_lanhu(
         meta = {
             'source_url': url,
             'project_name': project_name,
-            'project_id': pages_data['project_id'],
+            'project_id': project_id,
             'export_time': datetime.now().isoformat(),
-            'version_id': pages_data.get('version_id', ''),
-            'page_count': len(pages_data.get('pages', [])),
+            'version_id': pages_data.get('version_id', '') if pages_data else '',
+            'page_count': page_count,
             'design_count': len(designs),
             'slice_count': slice_count
         }
@@ -299,7 +313,8 @@ async def export_lanhu(
             json.dump(meta, f, ensure_ascii=False, indent=2)
 
         # 8. 生成 README.md
-        generate_readme(output_dir, meta, pages_data.get('pages', []), designs)
+        pages_list = pages_data.get('pages', []) if pages_data else []
+        generate_readme(output_dir, meta, pages_list, designs)
 
         print(f"\n✅ Export completed!")
         print(f"   Pages: {meta['page_count']}")
