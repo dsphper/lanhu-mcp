@@ -1,18 +1,11 @@
 {
-  "plugins": {
-    "enabled": [
-      "python",
-      "mcp",
-      "git",
-      "docker",
-      "http",
-      "playwright"
-    ],
-    "disabled": []
+  "enabledPlugins": {
+	  "python-development@claude-code-workflows": true,
+	  "superpowers-developing-for-claude-code@superpowers-marketplace": true
   },
   "permissions": {
     "allow": [
-      "Bash(pip install)"
+      "Bash(pip *)"
     ],
     "deny": [
     ]
@@ -21,13 +14,9 @@
     "PYTHONIOENCODING": "utf-8",
     "PYTHONUNBUFFERED": "1"
   },
-  "apiConfiguration": {
-    "baseURL": "https://api.anthropic.com"
-  },
-  "mcpServers": {
-    "lanhu": {
-      "url": "http://localhost:8000/mcp",
-      "disabled": false
-    }
+
+
+  "hooks": {
+   
   }
 }
