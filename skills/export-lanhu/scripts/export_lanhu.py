@@ -436,7 +436,7 @@ async def download_design_data(
             design.get('project_id', '')
         )
         with open(design_dir / 'schema.json', 'w', encoding='utf-8') as f:
-            json.dump(schema, f, ensure_ascii=False, indent=2)
+            json.dump(schema, f, ensure_ascii=False, separators=(',', ':'))
         result['schema'] = True
     except Exception as e:
         print(f"  ⚠️ Failed to get schema for {design_name}: {e}")
@@ -449,7 +449,7 @@ async def download_design_data(
             design.get('project_id', '')
         )
         with open(design_dir / 'sketch.json', 'w', encoding='utf-8') as f:
-            json.dump(sketch, f, ensure_ascii=False, indent=2)
+            json.dump(sketch, f, ensure_ascii=False, separators=(',', ':'))
         result['sketch'] = True
     except Exception as e:
         print(f"  ⚠️ Failed to get sketch for {design_name}: {e}")
@@ -628,7 +628,7 @@ async def export_lanhu(
                 page_dir.mkdir(exist_ok=True)
 
                 with open(page_dir / 'page.json', 'w', encoding='utf-8') as f:
-                    json.dump(page, f, ensure_ascii=False, indent=2)
+                    json.dump(page, f, ensure_ascii=False, separators=(',', ':'))
 
         # 4. 获取设计列表
         print("🎨 Fetching designs list...")
@@ -809,7 +809,7 @@ async def export_lanhu(
             'scales': target_scales or ['default'],
         }
         with open(output_dir / 'meta.json', 'w', encoding='utf-8') as f:
-            json.dump(meta, f, ensure_ascii=False, indent=2)
+            json.dump(meta, f, ensure_ascii=False, separators=(',', ':'))
 
         # 8. 生成 README.md
         pages_list = pages_data.get('pages', []) if pages_data else []
@@ -930,8 +930,8 @@ def main():
             keywords=keywords,
             timeout=config.get('timeout', 30)
         ))
-        # 输出 JSON 到 stdout
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        # 输出 JSON 到 stdout（紧凑格式）
+        print(json.dumps(result, ensure_ascii=False, separators=(',', ':')))
         return
 
     # 解析 --select 参数
