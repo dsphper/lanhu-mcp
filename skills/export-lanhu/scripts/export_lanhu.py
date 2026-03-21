@@ -789,6 +789,15 @@ async def export_lanhu(
                             slice_count += 1
 
         # 7. 生成 meta.json
+        # 计算各分组统计
+        groups_stats = {}
+        for design in designs:
+            design_name = design.get('name', '')
+            group = get_design_group(design_name, keywords)
+            if group not in groups_stats:
+                groups_stats[group] = {'design_count': 0, 'slice_count': 0}
+            groups_stats[group]['design_count'] += 1
+
         meta = {
             'source_url': url,
             'project_name': project_name,
@@ -797,7 +806,13 @@ async def export_lanhu(
             'version_id': pages_data.get('version_id', '') if pages_data else '',
             'page_count': page_count,
             'design_count': len(designs),
-            'slice_count': slice_count
+            'slice_count': slice_count,
+            # 新增字段
+            'platform': platform,
+            'keywords': keywords or [],
+            'groups': groups_stats,
+            'formats': target_formats or ['png'],
+            'scales': target_scales or ['default'],
         }
         with open(output_dir / 'meta.json', 'w', encoding='utf-8') as f:
             json.dump(meta, f, ensure_ascii=False, indent=2)
