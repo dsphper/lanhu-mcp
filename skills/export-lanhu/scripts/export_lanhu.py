@@ -22,7 +22,8 @@ from platform_config import (
     get_platform_config,
     get_slice_filename,
     get_slice_output_path,
-    get_all_scales
+    get_all_scales,
+    validate_scales
 )
 from format_converter import convert_format, resize_to_scale
 
@@ -707,7 +708,10 @@ async def export_lanhu(
 
             # 确定要导出的倍率
             if target_scales:
-                scales_to_export = target_scales
+                scales_to_export = validate_scales(platform, target_scales)
+                if not scales_to_export:
+                    print(f"⚠️ No valid scales for platform {platform}, using default")
+                    scales_to_export = [platform_config.default_scale]
             else:
                 scales_to_export = [platform_config.default_scale]
 

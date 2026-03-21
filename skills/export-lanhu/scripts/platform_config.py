@@ -159,3 +159,24 @@ def get_all_scales(platform: str) -> List[str]:
     """
     config = get_platform_config(platform)
     return list(config.scales.keys())
+
+
+def validate_scales(platform: str, scales: list) -> List[str]:
+    """
+    验证并过滤有效的 scale 值
+
+    Args:
+        platform: 平台名称
+        scales: 用户提供的 scale 列表
+
+    Returns:
+        有效的 scale 列表（只保留平台支持的 scale）
+    """
+    config = get_platform_config(platform)
+    valid_scales = []
+    for scale in scales:
+        if scale in config.scales:
+            valid_scales.append(scale)
+        else:
+            print(f"⚠️ Invalid scale '{scale}' for platform {platform}, skipping")
+    return valid_scales if valid_scales else [config.default_scale]
