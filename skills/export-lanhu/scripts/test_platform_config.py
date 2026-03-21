@@ -78,6 +78,27 @@ class TestPlatformConfig:
         expected = Path('/output/Web/登录/设计A/icon@2x.png')
         assert path == expected
 
+    def test_ios_output_path_no_keyword(self):
+        """iOS 输出路径（无关键词）"""
+        base = Path('/output')
+        path = get_slice_output_path(base, 'ios', '', '设计A', '3x', 'icon@3x.png')
+        expected = Path('/output/iOS/设计A/icon@3x.png')
+        assert path == expected
+
+    def test_android_output_path_no_keyword(self):
+        """Android 输出路径（无关键词）"""
+        base = Path('/output')
+        path = get_slice_output_path(base, 'android', '', '设计A', 'xxxhdpi', 'icon.png')
+        expected = Path('/output/Android/drawable-xxxhdpi/设计A/icon.png')
+        assert path == expected
+
+    def test_web_output_path_no_keyword(self):
+        """Web 输出路径（无关键词）"""
+        base = Path('/output')
+        path = get_slice_output_path(base, 'web', '', '设计A', '2x', 'icon@2x.png')
+        expected = Path('/output/Web/设计A/icon@2x.png')
+        assert path == expected
+
 
 class TestValidateScales:
     """scale 验证测试"""

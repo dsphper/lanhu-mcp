@@ -125,7 +125,7 @@ def get_slice_output_path(
     Args:
         base_dir: slices 基础目录
         platform: 平台 (ios/android/web)
-        keyword: 关键词分组
+        keyword: 关键词分组（空字符串表示不分组）
         design_name: 设计图名称
         scale: 倍率
         filename: 文件名
@@ -134,17 +134,24 @@ def get_slice_output_path(
         完整输出路径
 
     Examples:
-        iOS:    slices/iOS/登录/设计A/icon@3x.png
-        Android: slices/Android/drawable-xxxhdpi/登录/设计A/icon.png
-        Web:    slices/Web/登录/设计A/icon@2x.png
+        iOS with keyword:    slices/iOS/登录/设计A/icon@3x.png
+        iOS no keyword:    slices/iOS/设计A/icon@3x.png
+        Android with keyword: slices/Android/drawable-xxxhdpi/登录/设计A/icon.png
+        Android no keyword: slices/Android/drawable-xxxhdpi/设计A/icon.png
     """
     if platform == 'ios':
-        return base_dir / 'iOS' / keyword / design_name / filename
+        if keyword:
+            return base_dir / 'iOS' / keyword / design_name / filename
+        return base_dir / 'iOS' / design_name / filename
     elif platform == 'android':
         scale_dir = f"drawable-{scale}"
-        return base_dir / 'Android' / scale_dir / keyword / design_name / filename
+        if keyword:
+            return base_dir / 'Android' / scale_dir / keyword / design_name / filename
+        return base_dir / 'Android' / scale_dir / design_name / filename
     else:  # web
-        return base_dir / 'Web' / keyword / design_name / filename
+        if keyword:
+            return base_dir / 'Web' / keyword / design_name / filename
+        return base_dir / 'Web' / design_name / filename
 
 
 def get_all_scales(platform: str) -> List[str]:
