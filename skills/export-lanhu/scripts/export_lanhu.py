@@ -372,6 +372,37 @@ async def download_file(
     return False
 
 
+async def download_file_bytes(
+    client: httpx.AsyncClient,
+    url: str,
+    max_retries: int = 3
+) -> bytes:
+    """
+    下载文件到内存
+
+    Args:
+        client: HTTP 客户端
+        url: 文件 URL
+        max_retries: 最大重试次数
+
+    Returns:
+        文件数据，失败返回 None
+    """
+    delay = 1.0
+    for attempt in range(max_retries):
+        try:
+            response = await client.get(url)
+            response.raise_for_status()
+            return response.content
+        except Exception as e:
+            if attempt < max_retries - 1:
+                await asyncio.sleep(delay)
+                delay *= 2
+            else:
+                return None
+    return None
+
+
 async def download_design_data(
     api: LanhuAPI,
     design: dict,
@@ -668,40 +699,94 @@ async def export_lanhu(
             )
             design_results.append(result)
 
-        # 6. 下载切图（从 sketch.json 中提取，按设计图分组保存）
+        # 6. 下载切图（按平台、关键词分组，支持多格式）
         slice_count = 0
         if include_slices:
             print("🖼️ Downloading slices...")
+            platform_config = get_platform_config(platform)
+
+            # 确定要导出的倍率
+            if target_scales:
+                scales_to_export = target_scales
+            else:
+                scales_to_export = [platform_config.default_scale]
+
+            formats_to_export = target_formats or ['png']
+
             slices_base_dir = output_dir / 'slices'
             slices_base_dir.mkdir(exist_ok=True)
 
             for design in designs:
                 design_name = sanitize_filename(design.get('name', 'unknown'))
-                sketch_path = designs_dir / design_name / 'sketch.json'
+                sketch_path = get_design_output_path(designs_dir, design_name, keywords) / 'sketch.json'
 
-                # 读取已下载的 sketch.json
-                if sketch_path.exists():
-                    with open(sketch_path, 'r', encoding='utf-8') as f:
-                        sketch_data = json.load(f)
+                if not sketch_path.exists():
+                    continue
 
-                    # 从 sketch.json 提取切图
-                    slices = extract_slices_from_sketch(sketch_data)
+                with open(sketch_path, 'r', encoding='utf-8') as f:
+                    sketch_data = json.load(f)
 
-                    if slices:
-                        # 按设计图创建子目录
-                        design_slices_dir = slices_base_dir / design_name
-                        design_slices_dir.mkdir(exist_ok=True)
+                slices = extract_slices_from_sketch(sketch_data)
+                if not slices:
+                    continue
 
-                        for slice_item in slices:
-                            ext = slice_item.get('format', 'png')
-                            slice_name = f"{sanitize_filename(slice_item['name'])}.{ext}"
-                            success = await download_file(
-                                api.client,
-                                slice_item['url'],
-                                design_slices_dir / slice_name
+                # 获取设计所属的关键词分组
+                design_group = get_design_group(design.get('name', ''), keywords)
+
+                for slice_item in slices:
+                    slice_name = sanitize_filename(slice_item['name'])
+                    original_url = slice_item['url']
+                    original_format = slice_item.get('format', 'png')
+
+                    # 跳过 SVG（如果用户没有请求 SVG）
+                    if original_format == 'svg' and 'svg' not in formats_to_export:
+                        continue
+
+                    for scale_name in scales_to_export:
+                        for target_format in formats_to_export:
+                            # SVG 不需要缩放
+                            if original_format == 'svg' and target_format == 'svg':
+                                filename = get_slice_filename(
+                                    slice_name, platform, scale_name, 'svg'
+                                )
+                                output_path = get_slice_output_path(
+                                    slices_base_dir,
+                                    platform,
+                                    design_group,
+                                    design_name,
+                                    scale_name,
+                                    filename
+                                )
+                                success = await download_file(api.client, original_url, output_path)
+                                if success:
+                                    slice_count += 1
+                                continue
+
+                            # 下载 PNG
+                            png_data = await download_file_bytes(api.client, original_url)
+                            if not png_data:
+                                continue
+
+                            # 格式转换
+                            converted = convert_format(png_data, target_format)
+
+                            # 生成文件名和路径
+                            filename = get_slice_filename(
+                                slice_name, platform, scale_name, target_format
                             )
-                            if success:
-                                slice_count += 1
+                            output_path = get_slice_output_path(
+                                slices_base_dir,
+                                platform,
+                                design_group,
+                                design_name,
+                                scale_name,
+                                filename
+                            )
+
+                            output_path.parent.mkdir(parents=True, exist_ok=True)
+                            with open(output_path, 'wb') as f:
+                                f.write(converted)
+                            slice_count += 1
 
         # 7. 生成 meta.json
         meta = {
