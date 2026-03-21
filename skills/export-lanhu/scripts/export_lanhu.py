@@ -40,16 +40,6 @@ class AuthenticationError(LanhuExportError):
     pass
 
 
-class NetworkError(LanhuExportError):
-    """网络错误（可重试）"""
-    pass
-
-
-class ResourceNotFoundError(LanhuExportError):
-    """资源不存在（跳过）"""
-    pass
-
-
 @dataclass
 class ExportResult:
     """导出结果统计"""
