@@ -308,6 +308,175 @@ def resize_to_scale(img: Image.Image, target_scale: float, max_scale: float) -> 
 
 ---
 
+## 错误处理
+
+### API 错误处理
+
+| 错误场景 | 处理策略 |
+|----------|----------|
+| **网络超时** | 重试 3 次，指数退避 (1s, 2s, 4s)，失败后跳过并记录 |
+| **认证失败** | 立即终止，提示用户检查 Cookie 配置 |
+| **项目不存在** | 立即终止，提示 URL 无效或无权限 |
+| **设计图不存在** | 跳过该设计，继续处理其他设计 |
+| **切图资源 404** | 跳过该切图，记录警告日志 |
+
+### 错误处理代码
+
+```python
+class LanhuExportError(Exception):
+    """导出错误基类"""
+    pass
+
+class AuthenticationError(LanhuExportError):
+    """认证失败"""
+    pass
+
+class NetworkError(LanhuExportError):
+    """网络错误（可重试）"""
+    pass
+
+class ResourceNotFoundError(LanhuExportError):
+    """资源不存在（跳过）"""
+    pass
+
+
+async def download_with_retry(
+    client: httpx.AsyncClient,
+    url: str,
+    max_retries: int = 3,
+    initial_delay: float = 1.0
+) -> bytes:
+    """
+    带重试的下载
+
+    Args:
+        client: HTTP 客户端
+        url: 下载 URL
+        max_retries: 最大重试次数
+        initial_delay: 初始延迟秒数
+
+    Returns:
+        下载的数据
+
+    Raises:
+        NetworkError: 重试耗尽后仍失败
+    """
+    delay = initial_delay
+    last_error = None
+
+    for attempt in range(max_retries):
+        try:
+            response = await client.get(url)
+            response.raise_for_status()
+            return response.content
+        except httpx.TimeoutException as e:
+            last_error = e
+            print(f"  ⚠️ Timeout, retrying in {delay}s (attempt {attempt + 1}/{max_retries})")
+            await asyncio.sleep(delay)
+            delay *= 2  # 指数退避
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 401:
+                raise AuthenticationError("Authentication failed. Please check your Cookie.")
+            if e.response.status_code == 404:
+                raise ResourceNotFoundError(f"Resource not found: {url}")
+            raise NetworkError(f"HTTP error: {e}")
+
+    raise NetworkError(f"Failed after {max_retries} retries: {last_error}")
+```
+
+### 格式转换错误处理
+
+```python
+class FormatConversionError(LanhuExportError):
+    """格式转换失败"""
+    pass
+
+
+async def download_and_convert(
+    client: httpx.AsyncClient,
+    url: str,
+    target_format: str,
+    quality: int = 85
+) -> tuple[bytes, str]:
+    """
+    下载并转换格式
+
+    Args:
+        client: HTTP 客户端
+        url: 原始图片 URL
+        target_format: 目标格式 (png/webp/jpg/svg)
+        quality: 压缩质量
+
+    Returns:
+        (图片数据, 实际格式) 元组
+
+    Note:
+        转换失败时回退到原始 PNG 格式
+    """
+    # SVG 直接下载，无需转换
+    if target_format == 'svg':
+        try:
+            data = await download_with_retry(client, url.replace('.png', '.svg'))
+            return data, 'svg'
+        except:
+            raise ResourceNotFoundError("SVG format not available")
+
+    # 下载 PNG
+    png_data = await download_with_retry(client, url)
+
+    if target_format == 'png':
+        return png_data, 'png'
+
+    # 转换格式
+    try:
+        converted = convert_format(png_data, target_format, quality)
+        return converted, target_format
+    except Exception as e:
+        print(f"  ⚠️ Format conversion failed: {e}, falling back to PNG")
+        return png_data, 'png'
+```
+
+### 导出结果统计
+
+```python
+@dataclass
+class ExportResult:
+    """导出结果"""
+    success: bool
+    output_dir: Path
+    designs_total: int = 0
+    designs_success: int = 0
+    designs_failed: int = 0
+    slices_total: int = 0
+    slices_success: int = 0
+    slices_failed: int = 0
+    errors: list[str] = field(default_factory=list)
+
+    def add_error(self, error: str):
+        """添加错误记录"""
+        self.errors.append(error)
+
+    def to_dict(self) -> dict:
+        """转换为字典"""
+        return {
+            'success': self.success,
+            'output_dir': str(self.output_dir),
+            'designs': {
+                'total': self.designs_total,
+                'success': self.designs_success,
+                'failed': self.designs_failed,
+            },
+            'slices': {
+                'total': self.slices_total,
+                'success': self.slices_success,
+                'failed': self.slices_failed,
+            },
+            'errors': self.errors,
+        }
+```
+
+---
+
 ## 命令行参数
 
 ### 新增参数
@@ -318,7 +487,7 @@ def resize_to_scale(img: Image.Image, target_scale: float, max_scale: float) -> 
 | `--platform` | string | ios | 目标平台 (ios/android/web) |
 | `--scales` | string | all | 切图比例 (1x,2x,3x / all) |
 | `--formats` | string | png | 切图格式 (png,webp,svg)，逗号分隔 |
-| `--group-by` | string | keyword | 分组方式 (keyword/page/tag) |
+| `--group-by` | string | keyword | 分组方式 (keyword) |
 
 ### 参数组合示例
 
