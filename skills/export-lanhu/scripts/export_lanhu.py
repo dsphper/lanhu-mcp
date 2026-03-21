@@ -396,7 +396,9 @@ async def export_lanhu(
     cookie: str,
     include_slices: bool = True,
     include_preview: bool = True,
-    timeout: int = 30
+    timeout: int = 30,
+    keywords: list = None,
+    design_ids: list = None
 ) -> dict:
     """
     导出蓝湖数据
