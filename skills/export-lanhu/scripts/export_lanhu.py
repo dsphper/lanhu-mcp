@@ -25,7 +25,7 @@ from platform_config import (
     get_all_scales,
     validate_scales
 )
-from format_converter import convert_format, resize_to_scale
+from format_converter import convert_format
 
 
 # ============ 错误处理 ============
