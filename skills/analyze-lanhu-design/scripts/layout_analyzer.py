@@ -9,6 +9,13 @@ from collections import Counter
 class LayoutAnalyzer:
     """分析图层布局关系"""
 
+    # 布局检测阈值常量
+    OVERLAP_THRESHOLD = 0.5  # 重叠率阈值
+    SPREAD_THRESHOLD = 0.3   # 分布阈值
+    ALIGN_TOLERANCE = 5      # 对齐容差
+    CENTER_MARGIN = 30       # 居中边距阈值
+    SPACE_BETWEEN_MARGIN = 20  # space-between 边距阈值
+
     def __init__(self, root: Layer):
         self.root = root
         self.hints: dict[str, LayoutHint] = {}
@@ -41,11 +48,11 @@ class LayoutAnalyzer:
         horizontal_overlap = self._calc_horizontal_overlap(frames)
         vertical_overlap = self._calc_vertical_overlap(frames)
 
-        if horizontal_overlap > 0.5 and vertical_overlap < 0.3:
+        if horizontal_overlap > self.OVERLAP_THRESHOLD and vertical_overlap < self.SPREAD_THRESHOLD:
             # 垂直排列
             direction = 'column'
             gap = self._calc_vertical_gap(frames)
-        elif vertical_overlap > 0.5 and horizontal_overlap < 0.3:
+        elif vertical_overlap > self.OVERLAP_THRESHOLD and horizontal_overlap < self.SPREAD_THRESHOLD:
             # 水平排列
             direction = 'row'
             gap = self._calc_horizontal_gap(frames)
@@ -138,7 +145,7 @@ class LayoutAnalyzer:
         return self._most_common(gaps) if gaps else 0
 
     def _most_common(self, values: list[int]) -> int:
-        """取最常见的值（允许±2的误差）"""
+        """取最常见的值"""
         if not values:
             return 0
         counter = Counter(values)
@@ -149,27 +156,24 @@ class LayoutAnalyzer:
         if direction == 'row':
             # 检查水平分布
             total_width = sum(f.width for f in frames)
-            gaps = self._calc_horizontal_gap(frames)
-            total_gaps = gaps * (len(frames) - 1)
+            avg_gap = self._calc_horizontal_gap(frames)
+            total_gaps = avg_gap * (len(frames) - 1)
             space_left = container.width - total_width - total_gaps - frames[0].left
 
-            if abs(space_left - frames[0].left) < 5:
+            if abs(space_left - frames[0].left) < self.ALIGN_TOLERANCE:
                 return 'space-between'
-            elif frames[0].left > 30:
+            elif frames[0].left > self.CENTER_MARGIN:
                 return 'center'
             else:
                 return 'flex-start'
         else:
             # 检查垂直分布
-            total_height = sum(f.height for f in frames)
-            gaps = self._calc_vertical_gap(frames)
-            total_gaps = gaps * (len(frames) - 1)
             space_top = frames[0].top
             space_bottom = container.height - (frames[-1].top + frames[-1].height)
 
-            if abs(space_top - space_bottom) < 5 and space_top > 20:
+            if abs(space_top - space_bottom) < self.ALIGN_TOLERANCE and space_top > self.SPACE_BETWEEN_MARGIN:
                 return 'space-between'
-            elif abs(space_top - space_bottom) < 5:
+            elif abs(space_top - space_bottom) < self.ALIGN_TOLERANCE:
                 return 'center'
             else:
                 return 'flex-start'
@@ -179,7 +183,7 @@ class LayoutAnalyzer:
         if direction == 'row':
             # 检查垂直对齐
             centers = [f.top + f.height / 2 for f in frames]
-            if all(abs(c - centers[0]) < 5 for c in centers):
+            if all(abs(c - centers[0]) < self.ALIGN_TOLERANCE for c in centers):
                 return 'center'
             elif all(f.top == frames[0].top for f in frames):
                 return 'flex-start'
@@ -188,7 +192,7 @@ class LayoutAnalyzer:
         else:
             # 检查水平对齐
             centers = [f.left + f.width / 2 for f in frames]
-            if all(abs(c - centers[0]) < 5 for c in centers):
+            if all(abs(c - centers[0]) < self.ALIGN_TOLERANCE for c in centers):
                 return 'center'
             elif all(f.left == frames[0].left for f in frames):
                 return 'flex-start'
