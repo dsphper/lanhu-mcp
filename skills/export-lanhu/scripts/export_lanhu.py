@@ -523,6 +523,16 @@ def main():
     parser.add_argument('--no-slices', action='store_true', help='跳过切图下载')
     parser.add_argument('--no-preview', action='store_true', help='跳过预览图下载')
 
+    # 新增参数
+    parser.add_argument('--list', action='store_true',
+                        help='只列出设计，不下载，输出 JSON')
+    parser.add_argument('--keyword', type=str,
+                        help='过滤关键词（逗号分隔多个，OR 逻辑）')
+    parser.add_argument('--keywords', nargs='+',
+                        help='过滤关键词（空格分隔多个）')
+    parser.add_argument('--ids', type=str,
+                        help='指定设计 ID 导出（逗号分隔，精确控制）')
+
     args = parser.parse_args()
 
     # 查找项目根目录（向上搜索包含 .claude 文件夹的目录）
