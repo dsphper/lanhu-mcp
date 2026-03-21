@@ -338,6 +338,58 @@ def generate_readme(output_dir: Path, meta: dict, pages: list, designs: list):
         f.write(content)
 
 
+async def list_designs(
+    url: str,
+    cookie: str,
+    keywords: list = None,
+    timeout: int = 30
+) -> dict:
+    """
+    获取设计列表（用于 --list 模式）
+
+    Args:
+        url: 蓝湖 URL
+        cookie: 蓝湖 Cookie
+        keywords: 过滤关键词
+        timeout: 超时秒数
+
+    Returns:
+        设计列表 JSON
+    """
+    api = LanhuAPI(cookie, timeout)
+
+    try:
+        # 解析 URL 参数
+        params = api.parse_url(url)
+        team_id = params['team_id']
+        project_id = params['project_id']
+        doc_id = params.get('doc_id')
+
+        # 获取项目名称
+        if doc_id:
+            pages_data = await api.get_pages_list(url)
+            project_name = pages_data.get('document_name', 'Unknown')
+        else:
+            project_name = f"DesignProject-{project_id[:8]}"
+
+        # 获取设计列表
+        designs = await api.get_design_list(team_id, project_id)
+
+        # 输出 JSON
+        result = output_design_list(
+            source_url=url,
+            project_name=project_name,
+            project_id=project_id,
+            designs=designs,
+            keywords=keywords or []
+        )
+
+        return result
+
+    finally:
+        await api.close()
+
+
 async def export_lanhu(
     url: str,
     output_base_dir: Path,
