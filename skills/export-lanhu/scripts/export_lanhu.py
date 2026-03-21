@@ -83,6 +83,49 @@ def filter_designs_by_keywords(designs: list, keywords: list) -> tuple[list, lis
     return matched, unmatched
 
 
+def get_design_group(design_name: str, keywords: list) -> str:
+    """
+    根据设计名和关键词确定分组
+
+    Args:
+        design_name: 设计图名称
+        keywords: 过滤关键词列表
+
+    Returns:
+        分组名称（空字符串表示不分组）
+    """
+    # 无关键词时，不分组
+    if not keywords:
+        return ""
+
+    for keyword in keywords:
+        if keyword.lower() in design_name.lower():
+            return keyword
+    return "_其他"
+
+
+def get_design_output_path(base_dir: Path, design_name: str, keywords: list) -> Path:
+    """
+    获取设计输出路径
+
+    Args:
+        base_dir: designs 基础目录
+        design_name: 设计图名称（已清理）
+        keywords: 过滤关键词列表
+
+    Returns:
+        设计输出路径
+    """
+    group = get_design_group(design_name, keywords)
+
+    if group:
+        # 有关键词分组
+        return base_dir / group / design_name
+    else:
+        # 无关键词，不分组
+        return base_dir / design_name
+
+
 def output_design_list(
     source_url: str,
     project_name: str,
