@@ -507,6 +507,111 @@ def generate_readme(output_dir: Path, meta: dict, pages: list, designs: list):
         f.write(content)
 
 
+def generate_design_doc(
+    output_dir: Path,
+    meta: dict,
+    designs: list,
+    keywords: list,
+    slice_count: int
+):
+    """生成设计说明文档 DESIGN.md"""
+    from collections import defaultdict
+
+    # 按分组整理设计
+    groups = defaultdict(list)
+    for design in designs:
+        group = get_design_group(design.get('name', ''), keywords)
+        groups[group].append(design)
+
+    # 生成文档内容
+    lines = [
+        f"# {meta['project_name']} - 设计说明",
+        "",
+        "## 导出配置",
+        "",
+        "| 配置项 | 值 |",
+        "|--------|-----|",
+        f"| 目标平台 | {meta.get('platform', 'ios')} |",
+        f"| 导出格式 | {', '.join(meta.get('formats', ['png']))} |",
+        f"| 导出比例 | {', '.join(meta.get('scales', ['default']))} |",
+        f"| 过滤关键词 | {', '.join(meta.get('keywords', [])) or '无'} |",
+        "",
+        "## 统计信息",
+        "",
+        f"- **设计图总数**: {len(designs)}",
+        f"- **切图总数**: {slice_count}",
+        f"- **分组数量**: {len(groups)}",
+        "",
+        "## 设计图列表",
+        "",
+    ]
+
+    # 按分组输出设计图
+    for group_name, group_designs in sorted(groups.items()):
+        group_display = group_name if group_name else "未分组"
+        lines.append(f"### {group_display} ({len(group_designs)} 个)")
+        lines.append("")
+        lines.append("| 序号 | 名称 | ID |")
+        lines.append("|------|------|-----|")
+        for i, design in enumerate(group_designs, 1):
+            name = design.get('name', 'unknown')
+            design_id = design.get('id', '')[:8]
+            lines.append(f"| {i} | {name} | {design_id}... |")
+        lines.append("")
+
+    # 切图说明
+    if slice_count > 0:
+        lines.extend([
+            "## 切图资源",
+            "",
+            "切图资源位于 `slices/` 目录，按以下结构组织：",
+            "",
+            "```",
+            f"slices/",
+            f"├── {meta.get('platform', 'iOS')}/",
+        ])
+        if meta.get('platform') == 'android':
+            lines.append("│   └── drawable-xxxhdpi/")
+        if keywords:
+            lines.append(f"│       └── {keywords[0] if keywords else '分组'}/")
+        lines.extend([
+            "│           └── 设计图名称/",
+            "│               ├── icon@3x.png",
+            "│               └── ...",
+            "```",
+            "",
+        ])
+
+    # 使用说明
+    lines.extend([
+        "## 使用说明",
+        "",
+        "### 设计数据",
+        "",
+        "每个设计图包含以下文件：",
+        "",
+        "- `schema.json` - 设计结构数据（组件、样式等）",
+        "- `sketch.json` - 设计图层信息（包含切图 URL）",
+        "- `preview.png` - 设计预览图（如果启用）",
+        "",
+        "### 切图资源",
+        "",
+        "切图根据平台配置命名：",
+        "",
+        "| 平台 | 命名规则 | 示例 |",
+        "|------|----------|------|",
+        "| iOS | name@scale.format | icon@3x.png |",
+        "| Android | drawable-scale/name.format | drawable-xxxhdpi/icon.png |",
+        "| Web | name@scale.format | icon@2x.png |",
+        "",
+        "---",
+        f"*导出时间: {meta.get('export_time', 'unknown')}*",
+    ])
+
+    with open(output_dir / 'DESIGN.md', 'w', encoding='utf-8') as f:
+        f.write('\n'.join(lines))
+
+
 async def list_designs(
     url: str,
     cookie: str,
@@ -811,9 +916,10 @@ async def export_lanhu(
         with open(output_dir / 'meta.json', 'w', encoding='utf-8') as f:
             json.dump(meta, f, ensure_ascii=False, separators=(',', ':'))
 
-        # 8. 生成 README.md
+        # 8. 生成 README.md 和 DESIGN.md
         pages_list = pages_data.get('pages', []) if pages_data else []
         generate_readme(output_dir, meta, pages_list, designs)
+        generate_design_doc(output_dir, meta, designs, keywords, slice_count)
 
         print(f"\n✅ Export completed!")
         print(f"   Pages: {meta['page_count']}")
