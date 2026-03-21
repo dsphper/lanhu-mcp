@@ -12,10 +12,69 @@ import sys
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
+from dataclasses import dataclass, field
 
 import httpx
 
 from lanhu_api import LanhuAPI
+
+
+# ============ 错误处理 ============
+
+class LanhuExportError(Exception):
+    """导出错误基类"""
+    pass
+
+
+class AuthenticationError(LanhuExportError):
+    """认证失败"""
+    pass
+
+
+class NetworkError(LanhuExportError):
+    """网络错误（可重试）"""
+    pass
+
+
+class ResourceNotFoundError(LanhuExportError):
+    """资源不存在（跳过）"""
+    pass
+
+
+@dataclass
+class ExportResult:
+    """导出结果统计"""
+    success: bool
+    output_dir: Path
+    designs_total: int = 0
+    designs_success: int = 0
+    designs_failed: int = 0
+    slices_total: int = 0
+    slices_success: int = 0
+    slices_failed: int = 0
+    errors: list = field(default_factory=list)
+
+    def add_error(self, error: str):
+        """添加错误记录"""
+        self.errors.append(error)
+
+    def to_dict(self) -> dict:
+        """转换为字典"""
+        return {
+            'success': self.success,
+            'output_dir': str(self.output_dir),
+            'designs': {
+                'total': self.designs_total,
+                'success': self.designs_success,
+                'failed': self.designs_failed,
+            },
+            'slices': {
+                'total': self.slices_total,
+                'success': self.slices_success,
+                'failed': self.slices_failed,
+            },
+            'errors': self.errors,
+        }
 
 
 def load_config(project_root: Path) -> dict:
@@ -248,29 +307,61 @@ def generate_output_dir(project_name: str, base_dir: Path) -> Path:
     return base_dir / f"{safe_name}-{timestamp}"
 
 
-async def download_file(client: httpx.AsyncClient, url: str, output_path: Path) -> bool:
+async def download_file(
+    client: httpx.AsyncClient,
+    url: str,
+    output_path: Path,
+    max_retries: int = 3,
+    initial_delay: float = 1.0
+) -> bool:
     """
-    下载文件
+    下载文件（带重试）
 
     Args:
         client: HTTP 客户端
         url: 文件 URL
         output_path: 输出路径
+        max_retries: 最大重试次数
+        initial_delay: 初始延迟秒数
 
     Returns:
         是否成功
     """
-    try:
-        response = await client.get(url)
-        response.raise_for_status()
+    delay = initial_delay
+    last_error = None
 
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, 'wb') as f:
-            f.write(response.content)
-        return True
-    except Exception as e:
-        print(f"  ⚠️ Failed to download {url}: {e}")
-        return False
+    for attempt in range(max_retries):
+        try:
+            response = await client.get(url)
+            response.raise_for_status()
+
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(output_path, 'wb') as f:
+                f.write(response.content)
+            return True
+        except httpx.TimeoutException as e:
+            last_error = e
+            if attempt < max_retries - 1:
+                print(f"  ⚠️ Timeout, retrying in {delay}s (attempt {attempt + 1}/{max_retries})")
+                await asyncio.sleep(delay)
+                delay *= 2  # 指数退避
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 401:
+                raise AuthenticationError("Authentication failed. Please check your Cookie.")
+            if e.response.status_code == 404:
+                print(f"  ⚠️ Resource not found: {url}")
+                return False
+            last_error = e
+            if attempt < max_retries - 1:
+                print(f"  ⚠️ HTTP error, retrying in {delay}s")
+                await asyncio.sleep(delay)
+                delay *= 2
+        except Exception as e:
+            print(f"  ⚠️ Failed to download {url}: {e}")
+            return False
+
+    print(f"  ⚠️ Failed after {max_retries} retries: {last_error}")
+    return False
 
 
 async def download_design_data(
