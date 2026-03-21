@@ -460,6 +460,31 @@ async def export_lanhu(
         print("🎨 Fetching designs list...")
         designs = await api.get_design_list(team_id, project_id)
 
+        # 4.5 根据条件过滤设计
+        if design_ids:
+            # 按 ID 精确过滤
+            designs = [d for d in designs if d['id'] in design_ids]
+            print(f"🔍 Filtered by IDs: {len(designs)} designs")
+        elif keywords:
+            # 按关键词过滤
+            designs, _ = filter_designs_by_keywords(designs, keywords)
+            print(f"🔍 Filtered by keywords: {len(designs)} designs")
+
+        if not designs:
+            print("⚠️ No designs match the filter criteria")
+            return {
+                'success': True,
+                'output_dir': str(output_dir),
+                'meta': {
+                    'source_url': url,
+                    'project_name': project_name,
+                    'project_id': project_id,
+                    'export_time': datetime.now().isoformat(),
+                    'design_count': 0,
+                    'slice_count': 0
+                }
+            }
+
         # 5. 下载设计数据
         print(f"📦 Downloading {len(designs)} designs...")
         designs_dir = output_dir / 'designs'
