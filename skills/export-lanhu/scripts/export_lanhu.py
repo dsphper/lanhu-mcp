@@ -50,6 +50,39 @@ def sanitize_filename(name: str) -> str:
     return name.strip()
 
 
+def filter_designs_by_keywords(designs: list, keywords: list) -> tuple[list, list]:
+    """
+    根据关键词过滤设计列表
+
+    Args:
+        designs: 设计列表，每个元素包含 id 和 name
+        keywords: 关键词列表（OR 逻辑，不区分大小写）
+
+    Returns:
+        (matched, unmatched) 元组
+    """
+    if not keywords:
+        return designs, []
+
+    # 统一转小写进行匹配
+    keywords_lower = [kw.lower() for kw in keywords]
+
+    matched = []
+    unmatched = []
+
+    for design in designs:
+        name = design.get('name', '')
+        name_lower = name.lower()
+
+        # OR 逻辑：任一关键词匹配即可
+        if any(kw in name_lower for kw in keywords_lower):
+            matched.append(design)
+        else:
+            unmatched.append(design)
+
+    return matched, unmatched
+
+
 def extract_slices_from_sketch(sketch_data: dict) -> list:
     """
     从 sketch.json 中递归提取所有切图
