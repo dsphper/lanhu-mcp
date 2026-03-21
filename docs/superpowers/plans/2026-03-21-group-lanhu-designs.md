@@ -33,6 +33,25 @@ mkdir -p skills/group-lanhu-designs/references
 touch skills/group-lanhu-designs/scripts/__init__.py
 ```
 
+**`__init__.py` 内容**:
+```python
+"""group-lanhu-designs - 蓝湖设计分组技能"""
+from .models import ParsedPageName, PageGroup, Slice, STATE_KEYWORDS, TYPE_ORDER
+from .name_parser import parse_page_name, normalize_name
+from .page_grouper import group_pages, find_sketch_files
+from .slice_merger import collect_slices, merge_slices, copy_merged_slices
+from .merged_generator import MergedGenerator
+
+__all__ = [
+    'ParsedPageName', 'PageGroup', 'Slice',
+    'STATE_KEYWORDS', 'TYPE_ORDER',
+    'parse_page_name', 'normalize_name',
+    'group_pages', 'find_sketch_files',
+    'collect_slices', 'merge_slices', 'copy_merged_slices',
+    'MergedGenerator',
+]
+```
+
 **提交**: `feat(group): add directory structure for group-lanhu-designs skill`
 
 ---
@@ -391,8 +410,10 @@ def collect_slices(export_dir: Path, page_names: list[str]) -> list[Slice]:
     Returns:
         切图列表
     """
+    from PIL import Image
+
     slices = []
-    image_extensions = {'.png', '.jpg', '.jpeg', '.svg', '.webp'}
+    image_extensions = {'.png', '.jpg', '.jpeg', '.webp'}
 
     for page_name in page_names:
         # 查找 slices 目录
@@ -404,9 +425,14 @@ def collect_slices(export_dir: Path, page_names: list[str]) -> list[Slice]:
             if img_file.suffix.lower() not in image_extensions:
                 continue
 
-            # 提取尺寸（从文件名或尝试读取）
+            # 使用 PIL 读取图片尺寸
             width, height = 0, 0
-            # 简单处理：从 @2x/@3x 推断
+            try:
+                with Image.open(img_file) as img:
+                    width, height = img.size
+            except Exception:
+                pass  # 无法读取时保持 0,0
+
             scale = extract_scale(img_file.stem)
 
             slices.append(Slice(
