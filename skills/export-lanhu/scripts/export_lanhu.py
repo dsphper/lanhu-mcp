@@ -17,6 +17,14 @@ from dataclasses import dataclass, field
 import httpx
 
 from lanhu_api import LanhuAPI
+from selection_parser import parse_selection, SelectionParseError
+from platform_config import (
+    get_platform_config,
+    get_slice_filename,
+    get_slice_output_path,
+    get_all_scales
+)
+from format_converter import convert_format, resize_to_scale
 
 
 # ============ 错误处理 ============
@@ -368,7 +376,8 @@ async def download_design_data(
     api: LanhuAPI,
     design: dict,
     output_dir: Path,
-    include_preview: bool
+    subdir_name: str = None,
+    include_preview: bool = True
 ) -> dict:
     """
     下载单个设计的数据
@@ -377,13 +386,17 @@ async def download_design_data(
         api: API 客户端
         design: 设计信息
         output_dir: 输出目录
+        subdir_name: 子目录名称（用于分组），为 None 时使用设计名
         include_preview: 是否下载预览图
 
     Returns:
         下载结果
     """
     design_name = sanitize_filename(design.get('name', 'unknown'))
-    design_dir = output_dir / design_name
+    if subdir_name:
+        design_dir = output_dir / subdir_name
+    else:
+        design_dir = output_dir / design_name
     design_dir.mkdir(parents=True, exist_ok=True)
 
     result = {
@@ -532,7 +545,12 @@ async def export_lanhu(
     include_preview: bool = True,
     timeout: int = 30,
     keywords: list = None,
-    design_ids: list = None
+    design_ids: list = None,
+    # 新增参数
+    selection: list = None,  # 选择后的索引列表
+    platform: str = 'ios',
+    target_scales: list = None,  # None 表示使用默认
+    target_formats: list = None  # None 表示 ['png']
 ) -> dict:
     """
     导出蓝湖数据
@@ -601,8 +619,18 @@ async def export_lanhu(
             print(f"🔍 Filtered by IDs: {len(designs)} designs")
         elif keywords:
             # 按关键词过滤
-            designs, _ = filter_designs_by_keywords(designs, keywords)
-            print(f"🔍 Filtered by keywords: {len(designs)} designs")
+            matched, unmatched = filter_designs_by_keywords(designs, keywords)
+            if selection is not None:
+                # 在匹配结果中按索引选择
+                designs = [matched[i] for i in selection if i < len(matched)]
+                print(f"🔍 Selected {len(designs)} from {len(matched)} matched designs")
+            else:
+                designs = matched
+                print(f"🔍 Filtered by keywords: {len(designs)} designs")
+        elif selection is not None:
+            # 无关键词，在全量设计中按索引选择
+            designs = [designs[i] for i in selection if i < len(designs)]
+            print(f"🔍 Selected {len(designs)} designs by index")
 
         if not designs:
             print("⚠️ No designs match the filter criteria")
@@ -619,18 +647,24 @@ async def export_lanhu(
                 }
             }
 
-        # 5. 下载设计数据
+        # 5. 下载设计数据（按关键词分组）
         print(f"📦 Downloading {len(designs)} designs...")
         designs_dir = output_dir / 'designs'
         designs_dir.mkdir(exist_ok=True)
 
         design_results = []
         for i, design in enumerate(designs, 1):
-            print(f"  [{i}/{len(designs)}] {design.get('name', 'unknown')}")
+            design_name = sanitize_filename(design.get('name', 'unknown'))
             design['team_id'] = team_id
             design['project_id'] = project_id
+
+            # 获取分组路径
+            design_output = get_design_output_path(designs_dir, design_name, keywords)
+            design_output.mkdir(parents=True, exist_ok=True)
+
+            print(f"  [{i}/{len(designs)}] {design.get('name', 'unknown')}")
             result = await download_design_data(
-                api, design, designs_dir, include_preview
+                api, design, design_output.parent, design_output.name, include_preview
             )
             design_results.append(result)
 
