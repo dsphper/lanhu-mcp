@@ -83,6 +83,45 @@ def filter_designs_by_keywords(designs: list, keywords: list) -> tuple[list, lis
     return matched, unmatched
 
 
+def output_design_list(
+    source_url: str,
+    project_name: str,
+    project_id: str,
+    designs: list,
+    keywords: list,
+    max_unmatched_samples: int = 10
+) -> dict:
+    """
+    输出设计列表 JSON（用于 --list 模式）
+
+    Args:
+        source_url: 来源 URL
+        project_name: 项目名称
+        project_id: 项目 ID
+        designs: 设计列表
+        keywords: 过滤关键词
+        max_unmatched_samples: 未匹配列表最大返回数量
+
+    Returns:
+        JSON 输出字典
+    """
+    matched, unmatched = filter_designs_by_keywords(designs, keywords)
+
+    # 限制未匹配列表长度
+    unmatched_samples = unmatched[:max_unmatched_samples]
+
+    return {
+        'source_url': source_url,
+        'project_name': project_name,
+        'project_id': project_id,
+        'total': len(designs),
+        'matched_count': len(matched),
+        'matched': [{'id': d['id'], 'name': d['name']} for d in matched],
+        'unmatched_count': len(unmatched),
+        'unmatched': [{'id': d['id'], 'name': d['name']} for d in unmatched_samples]
+    }
+
+
 def extract_slices_from_sketch(sketch_data: dict) -> list:
     """
     从 sketch.json 中递归提取所有切图
