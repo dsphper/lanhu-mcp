@@ -128,13 +128,47 @@ def get_design_group(design_name: str, keywords: list[str]) -> str:
         keywords: 过滤关键词列表
 
     Returns:
-        分组名称
+        分组名称（空字符串表示不分组）
     """
+    # 无关键词时，不分组
+    if not keywords:
+        return ""
+
     for keyword in keywords:
         if keyword.lower() in design_name.lower():
             return keyword
     return "_其他"
+
+
+def get_design_output_path(base_dir: Path, design_name: str, keywords: list[str]) -> Path:
+    """
+    获取设计输出路径
+
+    Args:
+        base_dir: designs 基础目录
+        design_name: 设计图名称
+        keywords: 过滤关键词列表
+
+    Returns:
+        设计输出路径
+    """
+    group = get_design_group(design_name, keywords)
+
+    if group:
+        # 有关键词分组
+        return base_dir / group / design_name
+    else:
+        # 无关键词，不分组
+        return base_dir / design_name
 ```
+
+### 分组策略表
+
+| 场景 | 分组行为 | 输出路径示例 |
+|------|----------|-------------|
+| 有关键词，设计匹配 | 按关键词分组 | `designs/登录/01-登录页/` |
+| 有关键词，设计不匹配 | 放入 _其他 | `designs/_其他/商品详情/` |
+| **无关键词（导出全部）** | **不分组** | `designs/01-登录页/` |
 
 ---
 
