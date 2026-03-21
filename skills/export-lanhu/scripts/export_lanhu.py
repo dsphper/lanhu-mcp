@@ -535,6 +535,18 @@ def main():
 
     args = parser.parse_args()
 
+    # 解析关键词（支持 --keyword 逗号分隔 和 --keywords 空格分隔）
+    keywords = []
+    if args.keyword:
+        keywords.extend([kw.strip() for kw in args.keyword.split(',') if kw.strip()])
+    if args.keywords:
+        keywords.extend(args.keywords)
+
+    # 解析 --ids
+    design_ids = None
+    if args.ids:
+        design_ids = [id.strip() for id in args.ids.split(',') if id.strip()]
+
     # 查找项目根目录（向上搜索包含 .claude 文件夹的目录）
     project_root = find_project_root()
 
