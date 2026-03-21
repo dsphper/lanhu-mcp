@@ -746,6 +746,17 @@ def main():
     parser.add_argument('--ids', type=str,
                         help='指定设计 ID 导出（逗号分隔，精确控制）')
 
+    # 新增增强功能参数
+    parser.add_argument('--select', type=str,
+                        help='选择表达式（如 1-3,5 或 1-10 -2,4），跳过交互')
+    parser.add_argument('--platform', type=str, default='ios',
+                        choices=['ios', 'android', 'web'],
+                        help='目标平台 (默认: ios)')
+    parser.add_argument('--scales', type=str, default='all',
+                        help='切图比例 (all 或 2x,3x / mdpi,hdpi 等)')
+    parser.add_argument('--formats', type=str, default='png',
+                        help='切图格式 (png,webp,svg)，逗号分隔')
+
     args = parser.parse_args()
 
     # 解析关键词（支持 --keyword 逗号分隔 和 --keywords 空格分隔）
@@ -759,6 +770,16 @@ def main():
     design_ids = None
     if args.ids:
         design_ids = [id.strip() for id in args.ids.split(',') if id.strip()]
+
+    # 解析 --scales
+    target_scales = None  # None 表示使用默认
+    if args.scales and args.scales.lower() != 'all':
+        target_scales = [s.strip() for s in args.scales.split(',') if s.strip()]
+
+    # 解析 --formats
+    target_formats = [f.strip().lower() for f in args.formats.split(',') if f.strip()]
+    if not target_formats:
+        target_formats = ['png']
 
     # 查找项目根目录（向上搜索包含 .claude 文件夹的目录）
     project_root = find_project_root()
