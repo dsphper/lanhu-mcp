@@ -1,10 +1,10 @@
 ---
 name: export-lanhu
 description: |
-  导出蓝湖设计数据到本地项目。
+  导出蓝湖设计数据到本地项目（支持关键词过滤）。
 
   触发场景：导出蓝湖、蓝湖设计、下载切图、同步设计稿、拉取设计数据、
-  UI设计导出、设计数据保存、蓝湖数据导出、设计稿同步。
+  UI设计导出、设计数据保存、蓝湖数据导出、设计稿同步、按关键词导出设计。
 
   当用户提到蓝湖、设计稿、切图、UI设计导出时，使用此 Skill。
 compatibility:
@@ -14,18 +14,11 @@ compatibility:
 
 ## 使用方式
 
-```bash
-/export-lanhu <URL> [--output <目录>] [--no-slices] [--no-preview]
-```
+用户可以通过自然语言描述导出需求：
 
-## 参数
-
-| 参数 | 说明 |
-|------|------|
-| `URL` | 蓝湖项目链接（必填） |
-| `--output` | 自定义输出目录 |
-| `--no-slices` | 跳过切图下载 |
-| `--no-preview` | 跳过预览图下载 |
+- "导出蓝湖 <URL> 和登录相关的页面数据"
+- "导出蓝湖 <URL> 的全部设计"
+- "导出蓝湖 <URL> 中登录、注册相关的设计"
 
 ## 前置条件
 
@@ -40,7 +33,7 @@ compatibility:
   "output_base_dir": "docs/lanhu/pages",
   "include_slices": true,
   "include_preview": true,
-  "timeout": 30
+  "timeout": 300
 }
 ```
 
@@ -53,16 +46,103 @@ compatibility:
 5. 在 Headers 中找到 Cookie 字段
 6. 复制完整的 Cookie 值
 
-## 执行步骤
+## 执行流程
 
-1. 读取配置文件 `.claude/lanhu.config.json`
-2. 解析蓝湖 URL
-3. 获取页面列表（Pages）
-4. 获取每个页面的详情
-5. 获取设计图列表（Designs）
-6. 下载设计数据：Schema JSON + Sketch JSON + 预览图
-7. 下载切图资源
-8. 生成 README.md 和 meta.json
+### 步骤 1：解析用户输入
+
+1. **提取蓝湖 URL**
+   - 匹配 `lanhuapp.com` 开头的链接
+   - 支持 `http://` 和 `https://`
+
+2. **提取关键词**
+   - 从用户描述中识别业务词（如"登录"、"注册"、"支付"）
+   - 常见关键词模式：
+     - "和 X 相关的"
+     - "X 相关的页面"
+     - "包含 X 的设计"
+     - "X 相关"
+   - 如果用户说"全部"、"所有"或未指定关键词，则无关键词
+
+3. **多关键词处理**
+   - 多个关键词用逗号连接传递给脚本
+
+### 步骤 2：获取设计列表（预览）
+
+执行命令获取设计列表：
+
+```bash
+cd skills/export-lanhu/scripts
+python export_lanhu.py "<URL>" --keyword <关键词> --list
+```
+
+无关键词时：
+
+```bash
+python export_lanhu.py "<URL>" --list
+```
+
+**输出 JSON 格式：**
+
+```json
+{
+  "source_url": "https://lanhuapp.com/...",
+  "project_name": "电商APP设计",
+  "project_id": "xxx",
+  "total": 28,
+  "matched_count": 5,
+  "matched": [
+    {"id": "abc", "name": "登录页"},
+    {"id": "def", "name": "登录页-手机号"}
+  ],
+  "unmatched_count": 23,
+  "unmatched": [
+    {"id": "xxx", "name": "商品详情"}
+  ]
+}
+```
+
+### 步骤 3：展示结果并确认
+
+解析 JSON 输出，展示给用户：
+
+```
+🎯 匹配"登录"的设计图 (5/28)：
+
+  ✅ 登录页
+  ✅ 登录页-手机号
+  ✅ 登录页-验证码
+  ✅ 登录成功
+  ✅ 忘记登录密码
+
+📋 其他设计（23 个）：商品详情、支付成功、我的...
+
+是否导出这 5 个设计？
+```
+
+**交互选项：**
+- 用户确认 → 执行导出
+- 用户要求调整 → 重新过滤或使用 `--ids` 精确指定
+- 用户说"全部导出" → 不带关键词导出所有设计
+
+### 步骤 4：执行导出
+
+用户确认后执行：
+
+```bash
+python export_lanhu.py "<URL>" --keyword <关键词>
+```
+
+精确指定 ID：
+
+```bash
+python export_lanhu.py "<URL>" --ids <id1>,<id2>,<id3>
+```
+
+导出全部（无过滤）：
+
+```bash
+python export_lanhu.py "<URL>"
+```
 
 ## 输出
 
@@ -70,9 +150,6 @@ compatibility:
 
 ```
 {项目名}-{yyyyMMddHH}/
-├── pages/           # 页面数据
-│   └── {页面名}/
-│       └── page.json
 ├── designs/         # 设计图数据
 │   └── {设计名}/
 │       ├── schema.json
@@ -84,31 +161,36 @@ compatibility:
 └── README.md        # 说明文档
 ```
 
-## 执行命令
+## 关键词匹配规则
 
-执行 Python 脚本：
+- 匹配方式：包含匹配（设计名包含关键词即匹配）
+- 多关键词：OR 逻辑（匹配任意一个即可）
+- 大小写：不区分
 
-```bash
-cd skills/export-lanhu/scripts
-python export_lanhu.py "<URL>"
+## 可选参数
+
+| 参数 | 说明 |
+|------|------|
+| `--output, -o` | 自定义输出目录 |
+| `--no-slices` | 跳过切图下载 |
+| `--no-preview` | 跳过预览图下载 |
+
+## 示例场景
+
+**场景 1：导出登录相关设计**
+```
+用户：导出蓝湖 https://lanhuapp.com/... 和登录相关的页面数据
+Claude：执行预览 → 展示匹配结果 → 用户确认 → 执行导出
 ```
 
-## 示例
-
-导出蓝湖设计数据：
-
-```bash
-/export-lanhu "https://lanhuapp.com/web/#/item/project/product?tid=xxx&pid=xxx&docId=xxx"
+**场景 2：导出全部设计**
+```
+用户：导出蓝湖 https://lanhuapp.com/... 的所有设计
+Claude：直接执行导出（无过滤）
 ```
 
-指定输出目录：
-
-```bash
-/export-lanhu "https://lanhuapp.com/web/#/item/project/product?tid=xxx&pid=xxx" --output ./my-designs
+**场景 3：精确指定设计**
 ```
-
-跳过切图下载：
-
-```bash
-/export-lanhu "https://lanhuapp.com/..." --no-slices
+用户：导出蓝湖 https://lanhuapp.com/... 只要登录页和注册页
+Claude：预览 → 用户确认后用 --ids 精确导出
 ```
