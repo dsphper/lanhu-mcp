@@ -639,6 +639,18 @@ def main():
     # 确定输出目录
     output_base_dir = Path(args.output) if args.output else Path(config.get('output_base_dir', 'docs/lanhu/pages'))
 
+    # --list 模式：只输出设计列表 JSON
+    if args.list:
+        result = asyncio.run(list_designs(
+            url=args.url,
+            cookie=config['cookie'],
+            keywords=keywords,
+            timeout=config.get('timeout', 30)
+        ))
+        # 输出 JSON 到 stdout
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return
+
     # 运行导出
     result = asyncio.run(export_lanhu(
         url=args.url,
@@ -646,7 +658,9 @@ def main():
         cookie=config['cookie'],
         include_slices=not args.no_slices and config.get('include_slices', True),
         include_preview=not args.no_preview and config.get('include_preview', True),
-        timeout=config.get('timeout', 30)
+        timeout=config.get('timeout', 30),
+        keywords=keywords,
+        design_ids=design_ids
     ))
 
     if not result['success']:
