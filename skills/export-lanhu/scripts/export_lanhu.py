@@ -940,6 +940,23 @@ def main():
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return
 
+    # 解析 --select 参数
+    selection_indices = None
+    if args.select:
+        # 需要先获取总数
+        list_result = asyncio.run(list_designs(
+            url=args.url,
+            cookie=config['cookie'],
+            keywords=keywords,
+            timeout=config.get('timeout', 30)
+        ))
+        total_matched = list_result['matched_count'] if keywords else list_result['total']
+        try:
+            selection_indices = parse_selection(args.select, total_matched)
+        except SelectionParseError as e:
+            print(f"❌ Invalid selection: {e}")
+            sys.exit(1)
+
     # 运行导出
     result = asyncio.run(export_lanhu(
         url=args.url,
@@ -949,7 +966,12 @@ def main():
         include_preview=not args.no_preview and config.get('include_preview', True),
         timeout=config.get('timeout', 30),
         keywords=keywords,
-        design_ids=design_ids
+        design_ids=design_ids,
+        # 新增参数
+        selection=selection_indices,
+        platform=args.platform,
+        target_scales=target_scales,
+        target_formats=target_formats
     ))
 
     if not result['success']:
