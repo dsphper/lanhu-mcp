@@ -9,6 +9,7 @@ import argparse
 import asyncio
 import json
 import sys
+from collections import defaultdict
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
@@ -494,7 +495,8 @@ def generate_readme(output_dir: Path, meta: dict, pages: list, designs: list):
 ├── designs/         # 设计图数据
 ├── slices/          # 切图资源
 ├── meta.json        # 元数据
-└── README.md        # 说明文档
+├── README.md        # 说明文档
+└── DESIGN.md        # 设计说明
 ```
 
 ## 使用说明
@@ -515,7 +517,6 @@ def generate_design_doc(
     slice_count: int
 ):
     """生成设计说明文档 DESIGN.md"""
-    from collections import defaultdict
 
     # 按分组整理设计
     groups = defaultdict(list)
@@ -531,7 +532,7 @@ def generate_design_doc(
         "",
         "| 配置项 | 值 |",
         "|--------|-----|",
-        f"| 目标平台 | {meta.get('platform', 'ios')} |",
+        f"| 目标平台 | {meta.get('platform', 'ios').upper()} |",
         f"| 导出格式 | {', '.join(meta.get('formats', ['png']))} |",
         f"| 导出比例 | {', '.join(meta.get('scales', ['default']))} |",
         f"| 过滤关键词 | {', '.join(meta.get('keywords', [])) or '无'} |",
@@ -568,12 +569,12 @@ def generate_design_doc(
             "",
             "```",
             f"slices/",
-            f"├── {meta.get('platform', 'iOS')}/",
+            f"├── {meta.get('platform', 'ios').upper()}/",
         ])
         if meta.get('platform') == 'android':
             lines.append("│   └── drawable-xxxhdpi/")
         if keywords:
-            lines.append(f"│       └── {keywords[0] if keywords else '分组'}/")
+            lines.append(f"│       └── {keywords[0]}/")
         lines.extend([
             "│           └── 设计图名称/",
             "│               ├── icon@3x.png",
@@ -609,7 +610,7 @@ def generate_design_doc(
     ])
 
     with open(output_dir / 'DESIGN.md', 'w', encoding='utf-8') as f:
-        f.write('\n'.join(lines))
+        f.write('\n'.join(lines) + '\n')
 
 
 async def list_designs(
