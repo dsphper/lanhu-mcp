@@ -112,10 +112,6 @@
 - **智能缓存**：基于文档版本号的永久缓存机制
 - **增量更新**：只下载变更的资源
 - **并发处理**：支持批量页面截图和资源下载
-## ✨保持关注
-
-给我们点个 Star，你将能第一时间从 GitHub 收到所有新版本的发布通知！
-<img width="900" alt="Screenshot 2025-06-02 at 3 03 49 PM" src="https://github.com/user-attachments/assets/1c9a3661-80a4-4fba-a30f-f469898b0aec" />
 ## 🚀 快速开始
 
 > ⚠️ **重要提示：必须使用支持视觉功能的AI模型！**
@@ -284,6 +280,10 @@ docker-compose down              # 停止
 > - `name`: 用户姓名（用于协作追踪和 @提醒）
 > - ⚠️ **注意**：部分 AI 开发工具不支持 URL 中使用中文参数值，建议使用英文
 
+## ✨保持关注
+
+给我们点个 Star，你将能第一时间从 GitHub 收到所有新版本的发布通知！
+<img width="900" alt="Screenshot 2025-06-02 at 3 03 49 PM" src="https://github.com/user-attachments/assets/1c9a3661-80a4-4fba-a30f-f469898b0aec" />
 ## 📖 使用指南
 
 ### 需求文档分析工作流
