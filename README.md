@@ -4,7 +4,7 @@
 
 **让所有 AI 助手共享团队知识，打破 AI IDE 孤岛**
 
-**lanhumcp | 蓝湖mcp | lanhu-mcp | 蓝湖AI助手 | Lanhu AI Integration**
+**lanhumcp | 蓝湖mcp | lanhu-mcp | 蓝湖AI助手 | 蓝湖skills | Lanhu AI Integration**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
@@ -911,7 +911,7 @@ black lanhu_mcp_server.py
 
 ## 🏷️ 标签 Tags
 
-`lanhumcp` `蓝湖mcp` `lanhu-mcp` `蓝湖AI` `lanhu-ai` `mcp-server` `cursor-plugin` `windsurf-integration` `claude-integration` `openclaw-integration` `clawbot-integration` `axure-automation` `requirement-analysis` `design-collaboration` `ai-development-tools` `model-context-protocol` `蓝湖插件` `蓝湖API` `OpenClaw` `ClawBot` `AI助手` `AI编程` `智能协作` `AI需求分析` `设计协作` `前端开发工具` `后端开发工具`
+`lanhumcp` `蓝湖mcp` `lanhu-mcp` `蓝湖AI` `蓝湖skills` `lanhu-skills` `cursor-skills` `agent-skills` `lanhu-ai` `mcp-server` `cursor-plugin` `windsurf-integration` `claude-integration` `openclaw-integration` `clawbot-integration` `axure-automation` `requirement-analysis` `design-collaboration` `ai-development-tools` `model-context-protocol` `蓝湖插件` `蓝湖API` `OpenClaw` `ClawBot` `AI助手` `AI编程` `智能协作` `AI需求分析` `设计协作` `前端开发工具` `后端开发工具`
 
 ---
 
@@ -933,9 +933,9 @@ black lanhu_mcp_server.py
 
 ## 🔍 SEO 关键词索引
 
-**中文关键词**: 蓝湖mcp | lanhumcp | 蓝湖AI | 蓝湖插件 | 蓝湖API | 蓝湖Cursor | 蓝湖Windsurf | 蓝湖Claude | 蓝湖OpenClaw | 蓝湖ClawBot | OpenClaw | ClawBot | OpenClaw集成 | ClawBot集成 | AI助手 | 蓝湖需求文档 | 蓝湖Axure | 蓝湖切图 | 蓝湖设计稿 | AI需求分析 | AI测试用例 | MCP服务器 | 模型上下文协议
+**中文关键词**: 蓝湖mcp | lanhumcp | 蓝湖AI | 蓝湖skills | 蓝湖Skill | Cursor Skills 蓝湖 | Agent Skills 蓝湖 | 蓝湖插件 | 蓝湖API | 蓝湖Cursor | 蓝湖Windsurf | 蓝湖Claude | 蓝湖OpenClaw | 蓝湖ClawBot | OpenClaw | ClawBot | OpenClaw集成 | ClawBot集成 | AI助手 | 蓝湖需求文档 | 蓝湖Axure | 蓝湖切图 | 蓝湖设计稿 | AI需求分析 | AI测试用例 | MCP服务器 | 模型上下文协议
 
-**English Keywords**: lanhu mcp | lanhu-mcp | lanhu ai | lanhu cursor | lanhu windsurf | lanhu claude | lanhu api | lanhu integration | lanhu openclaw | lanhu clawbot | openclaw mcp | clawbot mcp | mcp server | model context protocol | axure automation | design collaboration | requirement analysis | ai development tools
+**English Keywords**: lanhu mcp | lanhu-mcp | lanhu ai | lanhu skills | cursor skills lanhu | agent skills lanhu | lanhu cursor | lanhu windsurf | lanhu claude | lanhu api | lanhu integration | lanhu openclaw | lanhu clawbot | openclaw mcp | clawbot mcp | mcp server | model context protocol | axure automation | design collaboration | requirement analysis | ai development tools
 
 **适用人群**: 产品经理 | 前端开发 | 后端开发 | 测试工程师 | UI设计师 | 使用Cursor的开发者 | 使用Windsurf的开发者 | 使用Claude的开发者 | AI编程爱好者
 
