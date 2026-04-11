@@ -5206,16 +5206,43 @@ async def lanhu_get_design_slices(
         image_id_from_url = params.get('doc_id')  # parse_url 会把 image_id 解析为 doc_id
 
         # 3. 查找指定的设计图
-        # 支持：精确名称匹配、image_id 匹配（当 design_name 为空或 URL 中有 image_id 时）
+        # 支持：精确名称匹配、index 数字匹配、模糊/归一化匹配、image_id 匹配
         target_design = None
+        design_name_stripped = design_name.strip()
 
-        # 先尝试按名称匹配
-        for design in designs_data['designs']:
-            if design['name'] == design_name:
-                target_design = design
-                break
+        # 3a. 尝试按 index 数字匹配
+        if design_name_stripped.isdigit():
+            idx = int(design_name_stripped)
+            for design in designs_data['designs']:
+                if design.get('index') == idx:
+                    target_design = design
+                    break
 
-        # 如果名称没匹配到，尝试使用 URL 中的 image_id
+        # 3b. 尝试精确名称匹配
+        if not target_design:
+            for design in designs_data['designs']:
+                if design['name'] == design_name_stripped:
+                    target_design = design
+                    break
+
+        # 3c. 尝试归一化引号后匹配（解决框架转换中文引号的问题）
+        if not target_design:
+            import unicodedata
+            def normalize_quotes(s):
+                return s.replace('\u201c', '"').replace('\u201d', '"').replace('\u2018', "'").replace('\u2019', "'")
+            normalized_input = normalize_quotes(design_name_stripped)
+            for design in designs_data['designs']:
+                if normalize_quotes(design['name']) == normalized_input:
+                    target_design = design
+                    break
+
+        # 3d. 尝试子串包含匹配（输入是设计名的一部分）
+        if not target_design:
+            matches = [d for d in designs_data['designs'] if design_name_stripped in d['name']]
+            if len(matches) == 1:
+                target_design = matches[0]
+
+        # 3e. 如果名称没匹配到，尝试使用 URL 中的 image_id
         if not target_design and image_id_from_url:
             for design in designs_data['designs']:
                 if design.get('id') == image_id_from_url:
