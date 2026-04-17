@@ -4705,6 +4705,65 @@ async def lanhu_get_ai_analyze_page_result(
         await extractor.close()
 
 
+def _normalize_design_sectors(sectors: List[dict]) -> tuple[List[dict], dict[str, List[dict]]]:
+    """规范化蓝湖 project_sectors 返回，并建立 image_id -> sectors 映射。"""
+    sector_by_id = {}
+    for sector in sectors or []:
+        sector_id = sector.get('id')
+        if sector_id:
+            sector_by_id[sector_id] = sector
+
+    sector_path_cache = {}
+
+    def build_sector_path(sector_id: str, trail: Optional[set[str]] = None) -> str:
+        if not sector_id:
+            return ""
+        if sector_id in sector_path_cache:
+            return sector_path_cache[sector_id]
+
+        sector = sector_by_id.get(sector_id, {})
+        sector_name = sector.get('name') or sector_id
+        parent_id = sector.get('parent_id') or ""
+        trail = trail or set()
+
+        if sector_id in trail:
+            return sector_name
+
+        if parent_id and parent_id in sector_by_id:
+            parent_path = build_sector_path(parent_id, trail | {sector_id})
+            path = f"{parent_path}/{sector_name}" if parent_path else sector_name
+        else:
+            path = sector_name
+
+        sector_path_cache[sector_id] = path
+        return path
+
+    normalized_sectors = []
+    image_sector_map = {}
+
+    for sector in sectors or []:
+        sector_id = sector.get('id')
+        if not sector_id:
+            continue
+
+        normalized_sector = {
+            'id': sector_id,
+            'parent_id': sector.get('parent_id') or None,
+            'name': sector.get('name'),
+            'path': build_sector_path(sector_id),
+            'order': sector.get('order', 0),
+            'image_count': len(sector.get('images') or [])
+        }
+        normalized_sectors.append(normalized_sector)
+
+        for image_id in sector.get('images') or []:
+            if not image_id:
+                continue
+            image_sector_map.setdefault(image_id, []).append(dict(normalized_sector))
+
+    return normalized_sectors, image_sector_map
+
+
 async def _get_designs_internal(extractor: LanhuExtractor, url: str) -> dict:
     """内部函数：获取设计图列表"""
     # 解析URL获取参数
@@ -4717,6 +4776,28 @@ async def _get_designs_internal(extractor: LanhuExtractor, url: str) -> dict:
         f"&team_id={params['team_id']}"
         f"&dds_status=1&position=1&show_cb_src=1&comment=1"
     )
+
+    sector_list = []
+    image_sector_map = {}
+    sector_warning = None
+
+    try:
+        sector_api_url = (
+            f"https://lanhuapp.com/api/project/project_sectors"
+            f"?project_id={params['project_id']}"
+        )
+        sector_response = await extractor.client.get(sector_api_url)
+        sector_response.raise_for_status()
+        sector_data = sector_response.json()
+
+        if sector_data.get('code') == '00000':
+            sector_list, image_sector_map = _normalize_design_sectors(
+                sector_data.get('data', {}).get('sectors', [])
+            )
+        else:
+            sector_warning = sector_data.get('msg', 'Unknown error')
+    except Exception as e:
+        sector_warning = str(e)
 
     # 发送请求
     response = await extractor.client.get(api_url)
@@ -4735,6 +4816,7 @@ async def _get_designs_internal(extractor: LanhuExtractor, url: str) -> dict:
 
     design_list = []
     for idx, img in enumerate(images, 1):
+        design_sectors = image_sector_map.get(img.get('id'), [])
         design_list.append({
             'index': idx,
             'id': img.get('id'),
@@ -4743,15 +4825,27 @@ async def _get_designs_internal(extractor: LanhuExtractor, url: str) -> dict:
             'height': img.get('height'),
             'url': img.get('url'),
             'has_comment': img.get('has_comment', False),
-            'update_time': img.get('update_time')
+            'update_time': img.get('update_time'),
+            'sectors': design_sectors,
+            'sector_names': [sector.get('name') for sector in design_sectors if sector.get('name')],
+            'sector_paths': [sector.get('path') for sector in design_sectors if sector.get('path')],
+            'primary_sector_name': design_sectors[0].get('name') if design_sectors else None
         })
 
-    return {
+    result = {
         'status': 'success',
         'project_name': project_data.get('name'),
+        'total_sectors': len(sector_list),
+        'ungrouped_design_count': sum(1 for design in design_list if not design.get('sectors')),
+        'sectors': sector_list,
         'total_designs': len(design_list),
         'designs': design_list
     }
+
+    if sector_warning:
+        result['sector_warning'] = f"Failed to load project sectors: {sector_warning}"
+
+    return result
 
 
 @mcp.tool()
@@ -4987,7 +5081,12 @@ async def lanhu_get_ai_analyze_design_result(
                         break
 
         if not target_designs:
-            available_names = [d['name'] for d in designs]
+            available_names = []
+            for design in designs:
+                if design.get('sector_paths'):
+                    available_names.append(f"{design['name']} [{', '.join(design['sector_paths'])}]")
+                else:
+                    available_names.append(design['name'])
             return [
                 f"⚠️ No matching design found\n\nAvailable designs:\n" + "\n".join(f"  • {name}" for name in available_names)]
 
@@ -5020,12 +5119,16 @@ async def lanhu_get_ai_analyze_design_result(
                     'success': True,
                     'design_name': design['name'],
                     'design_id': design['id'],
+                    'sector_names': design.get('sector_names', []),
+                    'sector_paths': design.get('sector_paths', []),
                     'screenshot_path': str(img_filepath)
                 })
             except Exception as e:
                 image_results.append({
                     'success': False,
                     'design_name': design['name'],
+                    'sector_names': design.get('sector_names', []),
+                    'sector_paths': design.get('sector_paths', []),
                     'error': str(e)
                 })
             
@@ -5218,6 +5321,8 @@ async def lanhu_get_ai_analyze_design_result(
         
         for idx, img_r in enumerate(success_image_results, 1):
             summary_text += f"\n--- 设计图 {idx}：{img_r['design_name']} ---\n"
+            if img_r.get('sector_paths'):
+                summary_text += f"   🗂️ 所属分组: {'；'.join(img_r['sector_paths'])}\n"
 
             html_r = success_html_results.get(img_r['design_name'])
             if html_r:
@@ -6278,5 +6383,3 @@ if __name__ == "__main__":
     SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
     SERVER_PORT = int(os.getenv("SERVER_PORT", "8000"))
     mcp.run(transport="http", path="/mcp", host=SERVER_HOST, port=SERVER_PORT)
-
-
