@@ -33,9 +33,28 @@ except ImportError:
 # 东八区时区（北京时间）
 CHINA_TZ = timezone(timedelta(hours=8))
 from urllib.parse import urlparse
+from email.utils import parsedate_to_datetime
 
 # 元数据缓存配置（基于版本号的永久缓存）
 _metadata_cache = {}  # {cache_key: {'data': {...}, 'version_id': str}}
+
+
+def _format_lanhu_rfc2822(value: Optional[str]) -> Optional[str]:
+    """把蓝湖 /api/project/product_documents 等端点返回的 RFC 2822 时间
+    (如 'Fri, 09 Jan 2026 10:07:29 GMT') 转成 '%Y-%m-%d %H:%M:%S' 中国时区字符串。
+
+    与 _fetch_metadata_from_url 中的 ISO8601 处理风格保持一致。
+    失败时原样返回，None 返回 None。
+    """
+    if not value:
+        return None
+    try:
+        dt = parsedate_to_datetime(value)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(CHINA_TZ).strftime('%Y-%m-%d %H:%M:%S')
+    except Exception:
+        return value
 
 import httpx
 from fastmcp import Context
@@ -2388,6 +2407,56 @@ class LanhuExtractor:
 
         return data.get('data') or data.get('result', {})
 
+    async def list_product_documents(self, team_id: str, project_id: str) -> dict:
+        """获取项目下的所有产品文档(PRD/原型)列表。
+
+        调用端点: GET /api/project/product_documents?team_id=xxx&project_id=xxx
+
+        返回精简后的结构，仅保留对 AI 有意义的字段、规范化时间格式，
+        并为每个文档预拼好 `doc_url`，便于直接喂给 lanhu_get_pages。
+        """
+        api_url = f"{BASE_URL}/api/project/product_documents"
+        params = {'team_id': team_id, 'project_id': project_id}
+
+        response = await self.client.get(api_url, params=params)
+        response.raise_for_status()
+
+        data = response.json()
+        code = data.get('code')
+        success = (code == 0 or code == '0' or code == '00000')
+
+        if not success:
+            raise Exception(f"API Error: {data.get('msg')} (code={code})")
+
+        result = data.get('data') or data.get('result') or {}
+
+        documents = []
+        for item in result.get('resources') or []:
+            doc_id = item.get('id')
+            if not doc_id:
+                continue
+            documents.append({
+                'doc_id': doc_id,
+                'name': item.get('name'),
+                'type': item.get('type', 'axure'),
+                'last_version_num': item.get('last_version_num'),
+                'latest_version': item.get('latest_version'),
+                'create_time': _format_lanhu_rfc2822(item.get('create_time')),
+                'update_time': _format_lanhu_rfc2822(item.get('update_time')),
+                'doc_url': (
+                    f"{BASE_URL}/web/#/item/project/product"
+                    f"?tid={team_id}&pid={project_id}&docId={doc_id}"
+                ),
+            })
+
+        return {
+            'default_group_id': result.get('default_group_id'),
+            'doc_can_download': result.get('doc_can_download'),
+            'need_group': result.get('need_group'),
+            'total': len(documents),
+            'documents': documents,
+        }
+
     def _get_cache_meta_path(self, output_dir: Path) -> Path:
         """获取缓存元数据文件路径"""
         return output_dir / self.CACHE_META_FILE
@@ -3786,6 +3855,35 @@ def _get_analysis_mode_options_by_role(user_role: str) -> str:
 
 {tester_option.replace('2️⃣', '3️⃣')}
 """
+
+
+@mcp.tool()
+async def lanhu_list_product_documents(
+    url: Annotated[str, "Lanhu project URL. Example: https://lanhuapp.com/web/#/item/project/product?tid=xxx&pid=xxx (docId optional, will be ignored). Required params: tid, pid. If you have an invite link, use lanhu_resolve_invite_link first!"],
+    ctx: Context = None
+) -> dict:
+    """
+    [PRD/Requirement Document Discovery] List all product documents (PRD/prototype) in a Lanhu project.
+
+    USE THIS WHEN user says: 有哪些需求文档, 列出项目的文档, 项目下的PRD列表, 产品文档列表,
+        这个项目有什么文档, 文档列表, list documents, product_documents, 所有文档, 全部 PRD
+    DO NOT USE for: 获取某个具体文档的页面 (use lanhu_get_pages instead),
+        UI设计图列表 (use lanhu_get_designs instead)
+
+    Purpose: Discover available PRD/requirement documents in a project so the user can pick
+        the right one to analyze. Typically used BEFORE lanhu_get_pages when docId is unknown.
+
+    Returns a dict with top-level metadata and a simplified `documents` list. Each document
+    carries a ready-to-use `doc_url` that can be fed straight into lanhu_get_pages.
+    """
+    extractor = LanhuExtractor()
+    try:
+        params = extractor.parse_url(url)
+        team_id = params.get('team_id')
+        project_id = params.get('project_id')
+        return await extractor.list_product_documents(team_id, project_id)
+    finally:
+        await extractor.close()
 
 
 @mcp.tool()
