@@ -2847,6 +2847,50 @@ class LanhuExtractor:
             'android_xxxhdpi': make_url(stored_w, stored_h),               # = 原图
         }
 
+    @staticmethod
+    def _build_ps_scale_urls(image_url: str, base_w: float, base_h: float) -> dict:
+        """
+        生成 Photoshop 稿切图的多倍图下载 URL。
+
+        PS 稿里 layer.width/height 对应蓝湖切图面板的 @2x 像素尺寸，
+        也就是 iOS @2x / Android xhdpi。以 40x40 为例：
+        1x/mdpi = 20x20, 2x/xhdpi = 40x40, 3x/xxhdpi = 60x60。
+        """
+        if not image_url or not base_w or not base_h:
+            return {}
+
+        bw = max(1, int(round(base_w)))
+        bh = max(1, int(round(base_h)))
+
+        def js_round(v: float) -> int:
+            """模拟 JavaScript Math.round（.5 向上取整）"""
+            import math
+            return math.floor(v + 0.5)
+
+        def make_url(w: int, h: int) -> str:
+            w, h = max(1, w), max(1, h)
+            return f"{image_url}?x-oss-process=image/resize,w_{w},h_{h}/format,png"
+
+        one_x_w = bw / 2
+        one_x_h = bh / 2
+
+        return {
+            # Web / 通用
+            '1x': make_url(js_round(one_x_w), js_round(one_x_h)),
+            '2x': make_url(bw, bh),
+            '3x': make_url(js_round(one_x_w * 3), js_round(one_x_h * 3)),
+            # iOS
+            'ios_1x': make_url(js_round(one_x_w), js_round(one_x_h)),
+            'ios_2x': make_url(bw, bh),
+            'ios_3x': make_url(js_round(one_x_w * 3), js_round(one_x_h * 3)),
+            # Android
+            'android_mdpi': make_url(js_round(one_x_w), js_round(one_x_h)),
+            'android_hdpi': make_url(js_round(one_x_w * 1.5), js_round(one_x_h * 1.5)),
+            'android_xhdpi': make_url(bw, bh),
+            'android_xxhdpi': make_url(js_round(one_x_w * 3), js_round(one_x_h * 3)),
+            'android_xxxhdpi': make_url(js_round(one_x_w * 4), js_round(one_x_h * 4)),
+        }
+
     async def get_design_slices_info(self, image_id: str, team_id: str, project_id: str,
                                      include_metadata: bool = True) -> dict:
         """
@@ -3174,14 +3218,13 @@ class LanhuExtractor:
                     bb = asset.get('bounds') or {}
                     lw_raw = float(bb.get('right', 0)) - float(bb.get('left', 0))
                     lh_raw = float(bb.get('bottom', 0)) - float(bb.get('top', 0))
-                sc = max(int(slice_scale), 1)
-                logical_w = (lw_raw / sc) if lw_raw > 0 else 1.0
-                logical_h = (lh_raw / sc) if lh_raw > 0 else 1.0
-                logical_w = max(1.0, logical_w)
-                logical_h = max(1.0, logical_h)
+                base_w = max(1.0, lw_raw)
+                base_h = max(1.0, lh_raw)
+                logical_w = max(1.0, base_w / 2)
+                logical_h = max(1.0, base_h / 2)
 
                 disp_name = asset.get('name') or layer.get('name') or 'slice'
-                size_str = f"{int(round(logical_w))}x{int(round(logical_h))}"
+                size_str = f"{int(round(base_w))}x{int(round(base_h))}"
                 slice_info = {
                     'id': lid,
                     'name': disp_name,
@@ -3208,15 +3251,18 @@ class LanhuExtractor:
                     slice_info['metadata'] = md
 
                 if imgs.get('png_xxxhd'):
-                    scale_urls = self._build_scale_urls(
-                        download_url, logical_w, logical_h, int(slice_scale)
-                    )
+                    scale_urls = self._build_ps_scale_urls(download_url, base_w, base_h)
                     if scale_urls:
                         slice_info['scale_urls'] = scale_urls
                     slice_info['logical_size'] = {
                         'width': int(round(logical_w)),
                         'height': int(round(logical_h)),
-                        'note': f'1x logical px; PS slice; sliceScale={slice_scale}',
+                        'note': '1x logical px; PS slice base px equals iOS @2x / Android xhdpi',
+                    }
+                    slice_info['base_size'] = {
+                        'width': int(round(base_w)),
+                        'height': int(round(base_h)),
+                        'note': 'PS slice base px; equals iOS @2x / Android xhdpi',
                     }
 
                 slices.append(slice_info)
