@@ -263,7 +263,19 @@ docker-compose down              # 停止
 
 在支持 MCP 的 AI 客户端（如 Claude Code、Cursor、Windsurf）中配置：
 
-**Cursor 配置示例：**
+**Claude Code 配置示例：**
+```json
+{
+  "mcpServers": {
+    "lanhu": {
+      "type": "http",
+      "url": "http://localhost:8000/mcp?role=Developer&name=YourName"
+    }
+  }
+}
+```
+
+**Cursor / Windsurf 等其他客户端配置示例：**
 ```json
 {
   "mcpServers": {
