@@ -2847,6 +2847,50 @@ class LanhuExtractor:
             'android_xxxhdpi': make_url(stored_w, stored_h),               # = 原图
         }
 
+    @staticmethod
+    def _build_ps_scale_urls(image_url: str, base_w: float, base_h: float) -> dict:
+        """
+        生成 Photoshop 稿切图的多倍图下载 URL。
+
+        PS 稿里 layer.width/height 对应蓝湖切图面板的 @2x 像素尺寸，
+        也就是 iOS @2x / Android xhdpi。以 40x40 为例：
+        1x/mdpi = 20x20, 2x/xhdpi = 40x40, 3x/xxhdpi = 60x60。
+        """
+        if not image_url or not base_w or not base_h:
+            return {}
+
+        bw = max(1, int(round(base_w)))
+        bh = max(1, int(round(base_h)))
+
+        def js_round(v: float) -> int:
+            """模拟 JavaScript Math.round（.5 向上取整）"""
+            import math
+            return math.floor(v + 0.5)
+
+        def make_url(w: int, h: int) -> str:
+            w, h = max(1, w), max(1, h)
+            return f"{image_url}?x-oss-process=image/resize,w_{w},h_{h}/format,png"
+
+        one_x_w = bw / 2
+        one_x_h = bh / 2
+
+        return {
+            # Web / 通用
+            '1x': make_url(js_round(one_x_w), js_round(one_x_h)),
+            '2x': make_url(bw, bh),
+            '3x': make_url(js_round(one_x_w * 3), js_round(one_x_h * 3)),
+            # iOS
+            'ios_1x': make_url(js_round(one_x_w), js_round(one_x_h)),
+            'ios_2x': make_url(bw, bh),
+            'ios_3x': make_url(js_round(one_x_w * 3), js_round(one_x_h * 3)),
+            # Android
+            'android_mdpi': make_url(js_round(one_x_w), js_round(one_x_h)),
+            'android_hdpi': make_url(js_round(one_x_w * 1.5), js_round(one_x_h * 1.5)),
+            'android_xhdpi': make_url(bw, bh),
+            'android_xxhdpi': make_url(js_round(one_x_w * 3), js_round(one_x_h * 3)),
+            'android_xxxhdpi': make_url(js_round(one_x_w * 4), js_round(one_x_h * 4)),
+        }
+
     async def get_design_slices_info(self, image_id: str, team_id: str, project_id: str,
                                      include_metadata: bool = True) -> dict:
         """
@@ -3128,6 +3172,101 @@ class LanhuExtractor:
         elif sketch_data.get('info'):
             for item in sketch_data['info']:
                 find_slices(item)
+
+        # Photoshop：蓝湖在根节点 type=ps，切图登记在 assets[]（isSlice），
+        # 实际 PNG/SVG 地址在对应 id 的图层 images.png_xxxhd / images.svg（与 convert_sketch_to_html 一致）
+        if str(sketch_data.get('type') or '').lower() == 'ps':
+            by_id: dict = {}
+
+            def _index_ps(obj):
+                if not isinstance(obj, dict):
+                    return
+                oid = obj.get('id')
+                if oid is not None:
+                    by_id[oid] = obj
+                for k in ('layers', 'children'):
+                    for c in (obj.get(k) or []):
+                        if isinstance(c, dict):
+                            _index_ps(c)
+
+            board = sketch_data.get('board')
+            if isinstance(board, dict):
+                _index_ps(board)
+            for sec in sketch_data.get('info') or []:
+                if isinstance(sec, dict):
+                    _index_ps(sec)
+
+            existing_ids = {s.get('id') for s in slices}
+
+            for asset in sketch_data.get('assets') or []:
+                if not isinstance(asset, dict) or not asset.get('isSlice'):
+                    continue
+                lid = asset.get('id')
+                if lid is None or lid in existing_ids:
+                    continue
+                layer = by_id.get(lid)
+                if not isinstance(layer, dict):
+                    continue
+                imgs = layer.get('images') or {}
+                download_url = imgs.get('png_xxxhd') or imgs.get('svg')
+                if not download_url:
+                    continue
+
+                lw_raw = float(layer.get('width') or 0)
+                lh_raw = float(layer.get('height') or 0)
+                if lw_raw <= 0 or lh_raw <= 0:
+                    bb = asset.get('bounds') or {}
+                    lw_raw = float(bb.get('right', 0)) - float(bb.get('left', 0))
+                    lh_raw = float(bb.get('bottom', 0)) - float(bb.get('top', 0))
+                base_w = max(1.0, lw_raw)
+                base_h = max(1.0, lh_raw)
+                logical_w = max(1.0, base_w / 2)
+                logical_h = max(1.0, base_h / 2)
+
+                disp_name = asset.get('name') or layer.get('name') or 'slice'
+                size_str = f"{int(round(base_w))}x{int(round(base_h))}"
+                slice_info = {
+                    'id': lid,
+                    'name': disp_name,
+                    'type': layer.get('type') or 'ps-slice',
+                    'download_url': download_url,
+                    'size': size_str,
+                    'format': 'png' if imgs.get('png_xxxhd') else 'svg',
+                }
+                if imgs.get('png_xxxhd') and imgs.get('svg'):
+                    slice_info['svg_url'] = imgs['svg']
+
+                if 'left' in layer and 'top' in layer:
+                    slice_info['position'] = {
+                        'x': int(round(float(layer.get('left', 0)))),
+                        'y': int(round(float(layer.get('top', 0)))),
+                    }
+
+                slice_info['layer_path'] = disp_name
+
+                if include_metadata:
+                    md = {'source': 'photoshop', 'asset_id': lid}
+                    if asset.get('scaleType') is not None:
+                        md['scaleType'] = asset.get('scaleType')
+                    slice_info['metadata'] = md
+
+                if imgs.get('png_xxxhd'):
+                    scale_urls = self._build_ps_scale_urls(download_url, base_w, base_h)
+                    if scale_urls:
+                        slice_info['scale_urls'] = scale_urls
+                    slice_info['logical_size'] = {
+                        'width': int(round(logical_w)),
+                        'height': int(round(logical_h)),
+                        'note': '1x logical px; PS slice base px equals iOS @2x / Android xhdpi',
+                    }
+                    slice_info['base_size'] = {
+                        'width': int(round(base_w)),
+                        'height': int(round(base_h)),
+                        'note': 'PS slice base px; equals iOS @2x / Android xhdpi',
+                    }
+
+                slices.append(slice_info)
+                existing_ids.add(lid)
 
         return {
             'design_id': image_id,
