@@ -5139,6 +5139,9 @@ async def lanhu_get_ai_analyze_design_result(
         html_results = []
         
         for design in target_designs:
+            # 文件名中的 / 替换为 _ 避免路径问题（display name 保留原始值）
+            safe_design_name = design['name'].replace('/', '_')
+
             # ===== 1. 下载图片 =====
             try:
                 # 获取原图URL（去掉OSS处理参数）
@@ -5149,7 +5152,7 @@ async def lanhu_get_ai_analyze_design_result(
                 response.raise_for_status()
 
                 # 保存文件
-                img_filename = f"{design['name']}.png"
+                img_filename = f"{safe_design_name}.png"
                 img_filepath = output_dir / img_filename
 
                 with open(img_filepath, 'wb') as f:
@@ -5184,7 +5187,7 @@ async def lanhu_get_ai_analyze_design_result(
                 html_code, image_url_mapping = _localize_image_urls(html_code, design['name'])
                 
                 # 保存HTML文件
-                html_filename = f"{design['name']}.html"
+                html_filename = f"{safe_design_name}.html"
                 html_filepath = output_dir / html_filename
                 
                 with open(html_filepath, 'w', encoding='utf-8') as f:
