@@ -888,7 +888,43 @@ def convert_sketch_to_html(sketch_data: dict, design_scale: float = 2.0,
     board_w = 375
     board_h = 667
 
-    if 'board' in sketch_data:
+    # 支持两种格式：board（平面结构）和 artboard（Figma 新格式，用 frame 子属性）
+    if 'artboard' in sketch_data:
+        artboard = sketch_data['artboard']
+        art_frame = artboard.get('frame') or artboard.get('realFrame') or {}
+        board_w = px(art_frame.get('width', 750))
+        board_h = px(art_frame.get('height', 1334))
+        raw_layers = artboard.get('layers', [])
+
+        def _flatten(layer):
+            if not layer or not isinstance(layer, dict):
+                return
+            if layer.get('visible') is False:
+                return
+            # artboard 格式中尺寸在 frame 子属性里
+            lframe = layer.get('frame') or layer.get('realFrame') or {}
+            w = lframe.get('width', 0) or layer.get('width', 0) or 0
+            h = lframe.get('height', 0) or layer.get('height', 0) or 0
+            if w == 0 and h == 0:
+                for child in reversed(layer.get('layers', [])):
+                    _flatten(child)
+                return
+            ltype = layer.get('type', '')
+            if ltype in ('layerSection', 'symbolInstence', 'artboard'):
+                # 检查是否有切图资源
+                images = layer.get('images') or {}
+                if images.get('png_xxxhd') or images.get('svg'):
+                    layers.append(layer)
+                else:
+                    for child in reversed(layer.get('layers', [])):
+                        _flatten(child)
+                return
+            layers.append(layer)
+
+        for l in reversed(raw_layers):
+            _flatten(l)
+
+    elif 'board' in sketch_data:
         board = sketch_data['board']
         board_w = px(board.get('width', 750))
         board_h = px(board.get('height', 1334))
@@ -928,13 +964,15 @@ def convert_sketch_to_html(sketch_data: dict, design_scale: float = 2.0,
         cls = f"el{idx + 1}"
         ltype = L.get('type', '')
         name = L.get('name', '')
-        left = px(L.get('left', 0))
-        top = px(L.get('top', 0))
-        w = px(L.get('width', 0))
-        h = px(L.get('height', 0))
+        # 支持两种格式：直接属性（board格式）或 frame 子属性（artboard格式）
+        lframe = L.get('frame') or L.get('realFrame') or {}
+        left = px(lframe.get('left', L.get('left', 0)))
+        top = px(lframe.get('top', L.get('top', 0)))
+        w = px(lframe.get('width', L.get('width', 0)))
+        h = px(lframe.get('height', L.get('height', 0)))
 
         opacity = get_opacity(L)
-        effects = L.get('layerEffects') or {}
+        effects = L.get('layerEffects') or L.get('style') or {}
 
         annot = {
             'name': name,
@@ -964,13 +1002,54 @@ def convert_sketch_to_html(sketch_data: dict, design_scale: float = 2.0,
             annot['css']['border-radius'] = br
 
         shadow = extract_shadow(effects)
+        # artboard格式: effects.shadows 直接有 x/y/blur/color 结构
+        if not shadow and isinstance(effects, dict):
+            shadows_list = effects.get('shadows') or []
+            shadow_parts = []
+            for s in shadows_list:
+                if not s.get('isEnabled', True):
+                    continue
+                sc = s.get('color') or {}
+                if isinstance(sc, dict) and 'value' in sc:
+                    s_color = sc['value']
+                else:
+                    s_color = color_css(sc)
+                if not s_color:
+                    continue
+                sx = px(s.get('x', 0))
+                sy = px(s.get('y', 0))
+                sblur = px(s.get('blur', 0))
+                sspread = px(s.get('spread', 0))
+                inset = "inset " if s.get('inset') else ""
+                spread_str = f" {sspread}px" if sspread else ""
+                shadow_parts.append(f"{inset}{sx}px {sy}px {sblur}px{spread_str} {s_color}")
+            if shadow_parts:
+                shadow = ','.join(shadow_parts)
         if shadow:
             annot['css']['box-shadow'] = shadow
 
         border = extract_border(effects)
+        # artboard格式: effects.borders 直接有 size/color 结构
+        if not border and isinstance(effects, dict):
+            borders_list = effects.get('borders') or []
+            for b in borders_list:
+                if not b.get('isEnabled', True):
+                    continue
+                bsize = px(b.get('size', 1))
+                bc = b.get('color') or {}
+                if isinstance(bc, dict) and 'value' in bc:
+                    b_color = bc['value']
+                else:
+                    b_color = color_css(bc)
+                if b_color:
+                    border = f"{bsize}px solid {b_color}"
+                    break
         if border:
             annot['css']['border'] = border
 
+        # 文本层处理：支持两种格式
+        # board格式: textInfo {text, color, size, fontName, fontPostScriptName, ...}
+        # artboard格式: text {value, style: {font, color}}
         text_content = ""
         is_slice = False
         slice_url = ""
@@ -984,56 +1063,122 @@ def convert_sketch_to_html(sketch_data: dict, design_scale: float = 2.0,
             image_url_mapping[local_path] = slice_url
             annot['slice_url'] = slice_url
 
-        if ltype == 'textLayer' and L.get('textInfo'):
-            ti = L['textInfo']
-            text_content = ti.get('text', '')
-            annot['text'] = text_content
-            props.append('z-index:10')
-            text_color = color_css(ti.get('color'), opacity)
-            if text_color:
-                props.append(f"color:{text_color}")
-                annot['css']['color'] = text_color
-            font_size = px(ti.get('size', 0))
-            if font_size:
-                props.append(f"font-size:{font_size}px")
-                annot['css']['font-size'] = f'{font_size}px'
-            font_name = ti.get('fontPostScriptName') or ti.get('fontName', '')
-            if font_name:
-                props.append(
-                    f'font-family:"{font_name}","PingFang SC",'
-                    f'"Microsoft YaHei","Hiragino Sans GB",sans-serif'
-                )
-                annot['css']['font-family'] = font_name
-            font_style_name = ti.get('fontStyleName', '')
-            fw = parse_font_weight(font_style_name)
-            if fw:
-                props.append(f"font-weight:{fw}")
-                annot['css']['font-weight'] = str(fw)
-            elif font_style_name:
-                annot['css']['font-weight'] = font_style_name
-            if ti.get('bold') and not fw:
-                props.append("font-weight:bold")
-            if ti.get('italic'):
-                props.append("font-style:italic")
-            just = ti.get('justification', 'left')
-            if just != 'left':
-                props.append(f"text-align:{just}")
-                annot['css']['text-align'] = just
-            lines = [ln for ln in text_content.split('\r') if ln]
-            line_count = max(len(lines), 1)
-            if line_count > 1 and h > 0 and font_size > 0:
-                lh = round(h / line_count * 10) / 10
-                props.append(f"line-height:{lh}px")
-            else:
-                props.append("line-height:1")
-            props.append("white-space:pre-wrap")
-            props.append("overflow:hidden")
-            props.append("word-break:break-all")
+        if ltype == 'textLayer' and (L.get('textInfo') or L.get('text')):
+            ti = L.get('textInfo')  # board格式
+            art_text = L.get('text')  # artboard格式
+            if ti:
+                # board格式处理
+                text_content = ti.get('text', '')
+                annot['text'] = text_content
+                props.append('z-index:10')
+                text_color = color_css(ti.get('color'), opacity)
+                if text_color:
+                    props.append(f"color:{text_color}")
+                    annot['css']['color'] = text_color
+                font_size = px(ti.get('size', 0))
+                if font_size:
+                    props.append(f"font-size:{font_size}px")
+                    annot['css']['font-size'] = f'{font_size}px'
+                font_name = ti.get('fontPostScriptName') or ti.get('fontName', '')
+                if font_name:
+                    props.append(
+                        f'font-family:"{font_name}","PingFang SC",'
+                        f'"Microsoft YaHei","Hiragino Sans GB",sans-serif'
+                    )
+                    annot['css']['font-family'] = font_name
+                font_style_name = ti.get('fontStyleName', '')
+                fw = parse_font_weight(font_style_name)
+                if fw:
+                    props.append(f"font-weight:{fw}")
+                    annot['css']['font-weight'] = str(fw)
+                elif font_style_name:
+                    annot['css']['font-weight'] = font_style_name
+                if ti.get('bold') and not fw:
+                    props.append("font-weight:bold")
+                if ti.get('italic'):
+                    props.append("font-style:italic")
+                just = ti.get('justification', 'left')
+                if just != 'left':
+                    props.append(f"text-align:{just}")
+                    annot['css']['text-align'] = just
+                lines = [ln for ln in text_content.split('\r') if ln]
+                line_count = max(len(lines), 1)
+                if line_count > 1 and h > 0 and font_size > 0:
+                    lh = round(h / line_count * 10) / 10
+                    props.append(f"line-height:{lh}px")
+                else:
+                    props.append("line-height:1")
+                props.append("white-space:pre-wrap")
+                props.append("overflow:hidden")
+                props.append("word-break:break-all")
+            elif art_text and isinstance(art_text, dict):
+                # artboard格式处理
+                text_content = art_text.get('value', '')
+                annot['text'] = text_content
+                props.append('z-index:10')
+                art_style = art_text.get('style', {})
+                # 颜色
+                art_color = art_style.get('color') or {}
+                if isinstance(art_color, dict) and 'value' in art_color:
+                    color_val = art_color['value']
+                    props.append(f"color:{color_val}")
+                    annot['css']['color'] = color_val
+                # 字体
+                art_font = art_style.get('font') or {}
+                font_size_val = art_font.get('size', 0)
+                font_size = px(font_size_val)
+                if font_size:
+                    props.append(f"font-size:{font_size}px")
+                    annot['css']['font-size'] = f'{font_size}px'
+                font_ps_name = art_font.get('postScriptName', '')
+                font_name = art_font.get('name', '') or font_ps_name
+                if font_name:
+                    props.append(
+                        f'font-family:"{font_name}","PingFang SC",'
+                        f'"Microsoft YaHei","Hiragino Sans GB",sans-serif'
+                    )
+                    annot['css']['font-family'] = font_name
+                font_weight = art_font.get('fontWeight', 0)
+                if font_weight:
+                    props.append(f"font-weight:{font_weight}")
+                    annot['css']['font-weight'] = str(font_weight)
+                font_type = art_font.get('type', '')
+                fw = parse_font_weight(font_type)
+                if fw and not font_weight:
+                    props.append(f"font-weight:{fw}")
+                    annot['css']['font-weight'] = str(fw)
+                align = art_font.get('align', 'left')
+                if align and align != 'left':
+                    props.append(f"text-align:{align}")
+                    annot['css']['text-align'] = align
+                line_height = art_font.get('lineHeight') or {}
+                lh_px = px(line_height.get('value', 0)) if isinstance(line_height, dict) else 0
+                if lh_px:
+                    props.append(f"line-height:{lh_px}px")
+                else:
+                    props.append("line-height:1")
+                props.append("white-space:pre-wrap")
+                props.append("overflow:hidden")
+                props.append("word-break:break-all")
         elif is_slice:
             props.append('z-index:5')
         else:
+            # board格式: L.fill.color
             fill = (L.get('fill') or {})
             fill_color = color_css(fill.get('color'), opacity)
+            # artboard格式: L.style.fills[0].color
+            if not fill_color and isinstance(effects, dict):
+                fills = effects.get('fills') or []
+                for f_item in fills:
+                    if f_item.get('isEnabled', True) and f_item.get('type') == 'color':
+                        fc = f_item.get('color') or {}
+                        if isinstance(fc, dict) and 'value' in fc:
+                            fill_color = fc['value']
+                            break
+                        else:
+                            fill_color = color_css(fc, opacity)
+                            if fill_color:
+                                break
             if fill_color:
                 annot['css']['background-color'] = fill_color
 
@@ -2317,14 +2462,15 @@ class LanhuExtractor:
         解析蓝湖URL，支持多种格式：
         1. 完整URL: https://lanhuapp.com/web/#/item/project/product?tid=...&pid=...
         2. 完整URL: https://lanhuapp.com/web/#/item/project/stage?tid=...&pid=...
-        3. 参数部分: ?tid=...&pid=...
-        4. 参数部分（无?）: tid=...&pid=...
+        3. detailDetach: https://lanhuapp.com/web/#/item/project/detailDetach?pid=...&image_id=...  (tid可选)
+        4. 参数部分: ?tid=...&pid=...
+        5. 参数部分（无?）: tid=...&pid=...
 
         Args:
             url: 蓝湖URL或参数字符串
 
         Returns:
-            包含project_id, team_id, doc_id, version_id的字典
+            包含project_id, team_id(可为None), doc_id, version_id的字典
         """
         # 如果是完整URL，提取fragment部分
         if url.startswith('http'):
@@ -2357,12 +2503,9 @@ class LanhuExtractor:
         doc_id = params.get('docId') or params.get('image_id')
         version_id = params.get('versionId')
 
-        # 验证必需参数
+        # 验证必需参数（pid 是唯一必需的，tid 可选 — detailDetach 等格式不含 tid）
         if not project_id:
             raise ValueError(f"URL parsing failed: missing required param pid (project_id)")
-
-        if not team_id:
-            raise ValueError(f"URL parsing failed: missing required param tid (team_id)")
 
         return {
             'team_id': team_id,
@@ -2487,13 +2630,15 @@ class LanhuExtractor:
         # 获取项目详细信息（包含创建者等信息）
         project_info = None
         try:
+            multi_info_params = {
+                'project_id': params['project_id'],
+                'doc_info': 1
+            }
+            if params.get('team_id'):
+                multi_info_params['team_id'] = params['team_id']
             response = await self.client.get(
                 f"{BASE_URL}/api/project/multi_info",
-                params={
-                    'project_id': params['project_id'],
-                    'team_id': params['team_id'],
-                    'doc_info': 1
-                }
+                params=multi_info_params
             )
             response.raise_for_status()
             data = response.json()
@@ -2891,7 +3036,8 @@ class LanhuExtractor:
             'android_xxxhdpi': make_url(js_round(one_x_w * 4), js_round(one_x_h * 4)),
         }
 
-    async def get_design_slices_info(self, image_id: str, team_id: str, project_id: str,
+
+    async def get_design_slices_info(self, image_id: str, team_id: str = None, project_id: str = None,
                                      include_metadata: bool = True) -> dict:
         """
         获取设计图的所有切图信息（仅返回元数据和下载地址，不下载文件）
@@ -2910,9 +3056,10 @@ class LanhuExtractor:
         params = {
             "dds_status": 1,
             "image_id": image_id,
-            "team_id": team_id,
             "project_id": project_id
         }
+        if team_id:
+            params["team_id"] = team_id
         response = await self.client.get(url, params=params)
         data = response.json()
 
@@ -3173,7 +3320,7 @@ class LanhuExtractor:
             for item in sketch_data['info']:
                 find_slices(item)
 
-        # Photoshop：蓝湖在根节点 type=ps，切图登记在 assets[]（isSlice），
+# Photoshop：蓝湖在根节点 type=ps，切图登记在 assets[]（isSlice），
         # 实际 PNG/SVG 地址在对应 id 的图层 images.png_xxxhd / images.svg（与 convert_sketch_to_html 一致）
         if str(sketch_data.get('type') or '').lower() == 'ps':
             by_id: dict = {}
@@ -3281,15 +3428,16 @@ class LanhuExtractor:
             'slices': slices
         }
 
-    async def _get_version_id_by_image_id(self, project_id: str, team_id: str, image_id: str) -> str:
+    async def _get_version_id_by_image_id(self, project_id: str, team_id: str = None, image_id: str = None) -> str:
         """通过 multi_info 按 image_id 获取 version_id（与 lanhu-html-converter-mcp 一致）"""
         url = f"{BASE_URL}/api/project/multi_info"
         params = {
             "project_id": project_id,
-            "team_id": team_id,
             "img_limit": 500,
             "detach": 1,
         }
+        if team_id:
+            params["team_id"] = team_id
         response = await self.client.get(url, params=params)
         response.raise_for_status()
         data = response.json()
@@ -3327,7 +3475,7 @@ class LanhuExtractor:
             schema_resp.raise_for_status()
             return schema_resp.json()
 
-    async def get_design_schema_json(self, image_id: str, team_id: str, project_id: str) -> dict:
+    async def get_design_schema_json(self, image_id: str, team_id: str = None, project_id: str = None) -> dict:
         """
         获取设计图的 Schema JSON（用于转换为 HTML）。
         与 lanhu-html-converter-mcp 一致：multi_info -> version_id -> DDS store_schema_revise -> data_resource_url -> schema。
@@ -3335,15 +3483,16 @@ class LanhuExtractor:
         version_id = await self._get_version_id_by_image_id(project_id, team_id, image_id)
         return await self._fetch_dds_schema(version_id)
 
-    async def get_sketch_json(self, image_id: str, team_id: str, project_id: str) -> dict:
+    async def get_sketch_json(self, image_id: str, team_id: str = None, project_id: str = None) -> dict:
         """获取原始 Sketch JSON（含完整设计标注数据，用于 design token 提取）"""
         url = f"{BASE_URL}/api/project/image"
         params = {
             "dds_status": 1,
             "image_id": image_id,
-            "team_id": team_id,
             "project_id": project_id
         }
+        if team_id:
+            params["team_id"] = team_id
         response = await self.client.get(url, params=params)
         data = response.json()
         if data['code'] != '00000':
@@ -3929,7 +4078,7 @@ def _get_analysis_mode_options_by_role(user_role: str) -> str:
 
 @mcp.tool()
 async def lanhu_get_pages(
-    url: Annotated[str, "Lanhu URL with docId parameter (indicates PRD/prototype document). Example: https://lanhuapp.com/web/#/item/project/product?tid=xxx&pid=xxx&docId=xxx. Required params: tid, pid, docId. If you have an invite link, use lanhu_resolve_invite_link first!"],
+    url: Annotated[str, "Lanhu URL with docId parameter (indicates PRD/prototype document). Example: https://lanhuapp.com/web/#/item/project/product?tid=xxx&pid=xxx&docId=xxx. Required param: pid. tid and docId recommended. Supports detailDetach format: ?pid=xxx&image_id=xxx. If you have an invite link, use lanhu_resolve_invite_link first!"],
     ctx: Context = None
 ) -> dict:
     """
@@ -4555,7 +4704,7 @@ def _get_analysis_mode_prompt(analysis_mode: str) -> dict:
 
 @mcp.tool()
 async def lanhu_get_ai_analyze_page_result(
-        url: Annotated[str, "Lanhu URL with docId parameter (indicates PRD/prototype document). Example: https://lanhuapp.com/web/#/item/project/product?tid=xxx&pid=xxx&docId=xxx. If you have an invite link, use lanhu_resolve_invite_link first!"],
+        url: Annotated[str, "Lanhu URL with docId parameter (indicates PRD/prototype document). Example: https://lanhuapp.com/web/#/item/project/product?tid=xxx&pid=xxx&docId=xxx. Required param: pid. tid and docId recommended. Supports detailDetach format. If you have an invite link, use lanhu_resolve_invite_link first!"],
         page_names: Annotated[Union[str, List[str]], "Page name(s) to analyze. Use 'all' for all pages, single name like '退款流程', or list like ['退款流程', '用户中心']. Get exact names from lanhu_get_pages first!"],
         mode: Annotated[str, "Analysis mode: 'text_only' (fast global scan, text only for overview) or 'full' (detailed analysis with images+text). Default: 'full'"] = "full",
         analysis_mode: Annotated[str, "Analysis perspective (MUST be chosen by user after STAGE 1): 'developer' (detailed for coding), 'tester' (test scenarios/validation), 'explorer' (quick overview for review). Default: 'developer'"] = "developer",
@@ -4849,13 +4998,14 @@ async def _get_designs_internal(extractor: LanhuExtractor, url: str) -> dict:
     # 解析URL获取参数
     params = extractor.parse_url(url)
 
-    # 构建获取设计图列表的API URL
+    # 构建获取设计图列表的API URL（team_id 可选）
     api_url = (
         f"https://lanhuapp.com/api/project/images"
         f"?project_id={params['project_id']}"
-        f"&team_id={params['team_id']}"
-        f"&dds_status=1&position=1&show_cb_src=1&comment=1"
     )
+    if params['team_id']:
+        api_url += f"&team_id={params['team_id']}"
+    api_url += f"&dds_status=1&position=1&show_cb_src=1&comment=1"
 
     # 发送请求
     response = await extractor.client.get(api_url)
@@ -4895,7 +5045,7 @@ async def _get_designs_internal(extractor: LanhuExtractor, url: str) -> dict:
 
 @mcp.tool()
 async def lanhu_get_designs(
-    url: Annotated[str, "Lanhu URL WITHOUT docId (indicates UI design project, not PRD). Example: https://lanhuapp.com/web/#/item/project/stage?tid=xxx&pid=xxx. Required params: tid, pid (NO docId)"],
+    url: Annotated[str, "Lanhu URL WITHOUT docId (indicates UI design project, not PRD). Example: https://lanhuapp.com/web/#/item/project/stage?tid=xxx&pid=xxx. Required param: pid. tid is optional. Supports detailDetach format: ?pid=xxx&image_id=xxx"],
     ctx: Context = None
 ) -> dict:
     """
@@ -4939,7 +5089,7 @@ async def lanhu_get_designs(
 
 @mcp.tool()
 async def lanhu_get_ai_analyze_design_result(
-        url: Annotated[str, "Lanhu URL WITHOUT docId (indicates UI design project). Example: https://lanhuapp.com/web/#/item/project/stage?tid=xxx&pid=xxx"],
+        url: Annotated[str, "Lanhu URL WITHOUT docId (indicates UI design project). Example: https://lanhuapp.com/web/#/item/project/stage?tid=xxx&pid=xxx. Required param: pid. tid is optional. Supports detailDetach format: ?pid=xxx&image_id=xxx"],
         design_names: Annotated[Union[str, List[str]], "Design name(s) or index number(s). 'all' = all designs. Number (e.g. 6) = the 6th item in lanhu_get_designs list (by 'index' field), NOT by name prefix. Exact name (e.g. '6_friend页_挂件墙') = match by full name. Get names/index from lanhu_get_designs first."],
         ctx: Context = None
 ) -> List[Union[str, Image]]:
@@ -5148,8 +5298,8 @@ async def lanhu_get_ai_analyze_design_result(
                 response = await extractor.client.get(img_url)
                 response.raise_for_status()
 
-                # 保存文件
-                img_filename = f"{design['name']}.png"
+                # 保存文件（文件名中的 / 替换为 _，避免路径分隔符问题）
+                img_filename = f"{design['name'].replace('/', '_')}.png"
                 img_filepath = output_dir / img_filename
 
                 with open(img_filepath, 'wb') as f:
@@ -5172,8 +5322,8 @@ async def lanhu_get_ai_analyze_design_result(
             try:
                 # 获取设计图Schema JSON
                 schema_json = await extractor.get_design_schema_json(
-                    design['id'], 
-                    params['team_id'], 
+                    design['id'],
+                    params.get('team_id'),
                     params['project_id']
                 )
                 
@@ -5183,8 +5333,8 @@ async def lanhu_get_ai_analyze_design_result(
                 # 远程图片 URL 替换为本地路径，生成下载映射表
                 html_code, image_url_mapping = _localize_image_urls(html_code, design['name'])
                 
-                # 保存HTML文件
-                html_filename = f"{design['name']}.html"
+                # 保存HTML文件（文件名中的 / 替换为 _）
+                html_filename = f"{design['name'].replace('/', '_')}.html"
                 html_filepath = output_dir / html_filename
                 
                 with open(html_filepath, 'w', encoding='utf-8') as f:
@@ -5208,7 +5358,7 @@ async def lanhu_get_ai_analyze_design_result(
             try:
                 sketch_json = await extractor.get_sketch_json(
                     design['id'],
-                    params['team_id'],
+                    params.get('team_id'),
                     params['project_id']
                 )
                 design_tokens = _extract_design_tokens(sketch_json)
@@ -5471,7 +5621,7 @@ async def lanhu_get_ai_analyze_design_result(
 
 @mcp.tool()
 async def lanhu_get_design_slices(
-        url: Annotated[str, "Lanhu URL WITHOUT docId (indicates UI design project). Example: https://lanhuapp.com/web/#/item/project/stage?tid=xxx&pid=xxx"],
+        url: Annotated[str, "Lanhu URL WITHOUT docId (indicates UI design project). Example: https://lanhuapp.com/web/#/item/project/stage?tid=xxx&pid=xxx. Required param: pid. tid is optional. Supports detailDetach format: ?pid=xxx&image_id=xxx"],
         design_name: Annotated[str, "Exact design name (single design only, NOT 'all'). Example: '首页设计', '登录页'. Must match exactly with name from lanhu_get_designs result!"],
         include_metadata: Annotated[bool, "Include color, opacity, shadow info"] = True,
         ctx: Context = None
@@ -5565,7 +5715,7 @@ async def lanhu_get_design_slices(
         # 4. 获取切图信息
         slices_data = await extractor.get_design_slices_info(
             image_id=target_design['id'],
-            team_id=params['team_id'],
+            team_id=params.get('team_id'),
             project_id=params['project_id'],
             include_metadata=include_metadata
         )
@@ -6411,17 +6561,16 @@ async def lanhu_get_members(
     }
 
 
-@mcp.custom_route("/health", methods=["GET"])
-async def health_check(request):
-    from starlette.responses import JSONResponse
-    return JSONResponse({"status": "ok"})
-
-
 if __name__ == "__main__":
-    # 运行MCP服务器
-    # 使用HTTP传输方式，支持环境变量配置
-    SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
-    SERVER_PORT = int(os.getenv("SERVER_PORT", "8000"))
-    mcp.run(transport="http", path="/mcp", host=SERVER_HOST, port=SERVER_PORT)
+    # 运行MCP服务器，支持环境变量切换传输方式
+    # MCP_TRANSPORT=stdio 时使用 stdio 模式（Claude Code 直接 spawn）
+    # MCP_TRANSPORT=http 或默认时使用 HTTP 模式（独立服务器）
+    MCP_TRANSPORT = os.getenv("MCP_TRANSPORT", "http")
+    if MCP_TRANSPORT == "stdio":
+        mcp.run(transport="stdio")
+    else:
+        SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
+        SERVER_PORT = int(os.getenv("SERVER_PORT", "8000"))
+        mcp.run(transport="http", path="/mcp", host=SERVER_HOST, port=SERVER_PORT)
 
 
