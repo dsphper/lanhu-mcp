@@ -2135,6 +2135,7 @@ def get_user_info(ctx: Context) -> tuple:
     从URL query参数获取用户信息
     
     MCP连接URL格式：http://xxx:port/mcp?role=后端&name=张三
+    stdio模式可通过 LANHU_USER_NAME 和 LANHU_USER_ROLE 环境变量获取
     """
     try:
         # 使用 FastMCP 提供的 get_http_request 获取当前请求
@@ -2147,7 +2148,7 @@ def get_user_info(ctx: Context) -> tuple:
         return name, role
     except Exception:
         pass
-    return '匿名', '未知'
+    return os.getenv('LANHU_USER_NAME', '匿名'), os.getenv('LANHU_USER_ROLE', '未知')
 
 
 def _clean_message_dict(msg: dict, current_user_name: str = None) -> dict:
@@ -6419,9 +6420,12 @@ async def health_check(request):
 
 if __name__ == "__main__":
     # 运行MCP服务器
-    # 使用HTTP传输方式，支持环境变量配置
-    SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
-    SERVER_PORT = int(os.getenv("SERVER_PORT", "8000"))
-    mcp.run(transport="http", path="/mcp", host=SERVER_HOST, port=SERVER_PORT)
+    # 默认使用HTTP传输；设置 MCP_TRANSPORT=stdio 时可由MCP客户端按需拉起。
+    MCP_TRANSPORT = os.getenv("MCP_TRANSPORT", "http").lower()
 
-
+    if MCP_TRANSPORT == "stdio":
+        mcp.run(transport="stdio")
+    else:
+        SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
+        SERVER_PORT = int(os.getenv("SERVER_PORT", "8000"))
+        mcp.run(transport="http", path="/mcp", host=SERVER_HOST, port=SERVER_PORT)

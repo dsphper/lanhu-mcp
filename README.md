@@ -250,6 +250,13 @@ export DEBUG="false"               # 调试模式（true/false）
 python lanhu_mcp_server.py
 ```
 
+**按需启动（stdio，本地 MCP 客户端推荐）：**
+```bash
+./run-stdio.sh
+```
+
+`run-stdio.sh` 会自动进入项目目录、读取 `.env`，并以 stdio 方式启动 MCP 服务。适合 Cursor、Claude Code 等支持 `command` / `args` 配置的客户端按需拉起服务，无需手动常驻启动 HTTP 服务。
+
 **Docker 运行：**
 ```bash
 docker-compose up -d              # 启动
@@ -286,10 +293,34 @@ docker-compose down              # 停止
 }
 ```
 
+**按需启动配置示例（无需提前启动服务）：**
+```json
+{
+  "mcpServers": {
+    "lanhu": {
+      "command": "/bin/bash",
+      "args": [
+        "<ABSOLUTE_PATH_TO_LANHU_MCP>/run-stdio.sh"
+      ],
+      "env": {
+        "LANHU_USER_NAME": "YourName",
+        "LANHU_USER_ROLE": "Developer"
+      }
+    }
+  }
+}
+```
+
+请将 `<ABSOLUTE_PATH_TO_LANHU_MCP>` 替换为本机 `lanhu-mcp` 项目的绝对路径；macOS/Linux 下可在项目目录执行 `pwd` 获取。
+
 > 📌 URL 参数说明：
 > - `role`: 用户角色（Developer/Frontend/Backend/Tester/Product 等）
 > - `name`: 用户姓名（用于协作追踪和 @提醒）
 > - ⚠️ **注意**：部分 AI 开发工具不支持 URL 中使用中文参数值，建议使用英文
+
+> 📌 stdio 环境变量说明：
+> - `LANHU_USER_ROLE`: 用户角色（Developer/Frontend/Backend/Tester/Product 等）
+> - `LANHU_USER_NAME`: 用户姓名（用于协作追踪和 @提醒）
 
 ## 🎯 提升 UI 还原度
 
