@@ -150,7 +150,7 @@ export SERVER_HOST="0.0.0.0"       # Server listen address
 export SERVER_PORT=8000            # Server port
 
 # Data Storage
-export DATA_DIR="./data"           # Data storage directory
+export DATA_DIR="/tmp/lanhu-mcp-data"  # Data storage directory for read-only app roots
 
 # Performance Tuning
 export HTTP_TIMEOUT=30             # HTTP request timeout (seconds)
@@ -566,6 +566,13 @@ Cache directory is controlled by environment variable `DATA_DIR`:
 
 ```bash
 export DATA_DIR="/path/to/cache"
+```
+
+If your hosting platform mounts the application directory as read-only, use a
+writable path such as:
+
+```bash
+export DATA_DIR="/tmp/lanhu-mcp-data"
 ```
 
 ### Feishu Notification Customization

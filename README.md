@@ -230,7 +230,7 @@ export SERVER_HOST="0.0.0.0"       # 服务器监听地址
 export SERVER_PORT=8000            # 服务器端口
 
 # 数据存储
-export DATA_DIR="./data"           # 数据存储目录
+export DATA_DIR="/tmp/lanhu-mcp-data"  # 数据存储目录（云平台只读根目录时推荐使用 /tmp）
 
 # 性能调优
 export HTTP_TIMEOUT=30             # HTTP请求超时时间（秒）
@@ -803,6 +803,12 @@ ROLE_MAPPING_RULES = [
 
 ```bash
 export DATA_DIR="/path/to/cache"
+```
+
+如果部署平台将应用目录挂载为只读（例如部分 serverless/托管平台），请使用可写目录：
+
+```bash
+export DATA_DIR="/tmp/lanhu-mcp-data"
 ```
 
 ### 飞书通知定制

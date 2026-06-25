@@ -81,9 +81,37 @@ DDS_COOKIE = os.getenv("DDS_COOKIE", COOKIE)
 DEFAULT_FEISHU_WEBHOOK = "https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook-key-here"
 FEISHU_WEBHOOK_URL = os.getenv("FEISHU_WEBHOOK_URL", DEFAULT_FEISHU_WEBHOOK)
 
+def _init_data_dir() -> Path:
+    """Resolve a writable data directory.
+
+    Some serverless hosts, such as Horizon, mount the application directory as
+    read-only. Prefer an explicit DATA_DIR when provided; otherwise fall back to
+    /tmp before trying the local ./data directory for development.
+    """
+    candidates = []
+    configured_data_dir = os.getenv("DATA_DIR")
+    if configured_data_dir:
+        candidates.append(Path(configured_data_dir))
+    else:
+        candidates.extend([Path("/tmp/lanhu-mcp-data"), Path("./data")])
+
+    last_error = None
+    for candidate in candidates:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            (candidate / "messages").mkdir(parents=True, exist_ok=True)
+            return candidate
+        except OSError as exc:
+            last_error = exc
+
+    raise RuntimeError(
+        "Unable to initialize writable DATA_DIR. Set DATA_DIR to a writable "
+        "path, for example /tmp/lanhu-mcp-data."
+    ) from last_error
+
+
 # 数据存储目录
-DATA_DIR = Path(os.getenv("DATA_DIR", "./data"))
-DATA_DIR.mkdir(parents=True, exist_ok=True)
+DATA_DIR = _init_data_dir()
 
 # HTTP 请求超时时间（秒）
 HTTP_TIMEOUT = float(os.getenv("HTTP_TIMEOUT", "30"))
