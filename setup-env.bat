@@ -1,4 +1,5 @@
 @echo off
+setlocal enabledelayedexpansion
 chcp 65001 >nul 2>&1
 REM 蓝湖 MCP Docker 快速部署脚本 (Windows)
 REM 适配 Docker Desktop v20.10+ (docker compose 无横线)
@@ -139,8 +140,16 @@ if not errorlevel 1 (
     echo 🎉 部署完成！
     echo ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     echo.
+    if not defined SERVER_PORT set SERVER_PORT=8000
+    for /f "usebackq tokens=1,* delims==" %%a in (".env") do (
+        if /i "%%a"=="SERVER_PORT" (
+            set "value=%%b"
+            set "value=!value:"=!"
+            if not "!value!"=="" set "SERVER_PORT=!value!"
+        )
+    )
     echo 📝 服务访问地址:
-    echo    http://localhost:8000/mcp?role=开发^&name=你的名字
+    echo    http://localhost:!SERVER_PORT!/mcp?role=开发^&name=你的名字
     echo.
     echo 🔧 常用命令:
     echo    查看日志: %COMPOSE_CMD% logs -f lanhu-mcp
@@ -164,7 +173,7 @@ if not errorlevel 1 (
     echo.
     echo 💡 常见问题排查:
     echo    1. Cookie 是否正确？
-    echo    2. 端口 8000 是否被占用？
+    echo    2. 端口 !SERVER_PORT! 是否被占用？
     echo    3. Docker Desktop 是否正在运行？
     echo    4. Docker 资源是否充足？
     echo    5. 确认 Docker Compose 命令格式是否正确（docker compose / docker-compose）

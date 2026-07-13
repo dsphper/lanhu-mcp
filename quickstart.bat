@@ -117,22 +117,14 @@ REM 创建数据目录
 if not exist "data" mkdir data
 if not exist "logs" mkdir logs
 
+if not defined SERVER_PORT set SERVER_PORT=8000
+
 echo.
 echo 正在启动蓝湖 MCP 服务器...
 echo ======================================
 echo.
-echo 服务器地址：http://localhost:8000/mcp
+call scripts\print-mcp-config.bat
 echo.
-echo 在 Cursor 中连接，请添加以下配置到 MCP 配置文件：
-echo {
-echo   "mcpServers": {
-echo     "lanhu": {
-echo       "url": "http://localhost:8000/mcp?role=Developer&name=YourName"
-echo     }
-echo   }
-echo }
-echo.
-echo 提示：部分 AI 开发工具不支持 URL 中使用中文参数值，建议使用英文
 echo 按 Ctrl+C 停止服务器
 echo.
 

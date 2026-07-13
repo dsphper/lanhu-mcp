@@ -251,23 +251,10 @@ if [ "$start_now" = "y" ] || [ "$start_now" = "Y" ]; then
     echo -e "${BOLD}${GREEN}🎉 安装成功！服务正在启动...${NC}"
     echo -e "${BOLD}${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-    echo -e "${BOLD}服务器地址：${NC}http://localhost:8000/mcp"
-    echo ""
     echo -e "${BOLD}下一步：在 Cursor 中配置 MCP${NC}"
     echo ""
-    echo "请将以下配置添加到 Cursor 的 MCP 配置文件中："
-    echo ""
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    cat << 'MCP_CONFIG'
-{
-  "mcpServers": {
-    "lanhu": {
-      "url": "http://localhost:8000/mcp?role=Developer&name=YourName"
-    }
-  }
-}
-MCP_CONFIG
-    echo -e "${YELLOW}提示：部分 AI 开发工具不支持 URL 中文参数，建议使用英文${NC}"
+    bash scripts/print-mcp-config.sh
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
     echo -e "${BOLD}配置方法：${NC}"

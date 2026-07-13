@@ -97,18 +97,7 @@ echo ""
 echo "🚀 正在启动蓝湖 MCP 服务器..."
 echo "=================================="
 echo ""
-echo "服务器地址：http://localhost:8000/mcp"
-echo ""
-echo "在 Cursor 中连接，请添加以下配置到 MCP 配置文件："
-echo "{
-  \"mcpServers\": {
-    \"lanhu\": {
-      \"url\": \"http://localhost:8000/mcp?role=Developer&name=YourName\"
-    }
-  }
-}"
-echo ""
-echo "提示：部分 AI 开发工具不支持 URL 中文参数，建议使用英文"
+bash scripts/print-mcp-config.sh
 echo ""
 echo "按 Ctrl+C 停止服务器"
 echo ""

@@ -251,22 +251,10 @@ if /i "!START_NOW!"=="y" (
     echo 🎉 安装成功！服务正在启动...
     echo ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     echo.
-    echo 服务器地址：http://localhost:8000/mcp
-    echo.
     echo 下一步：在 Cursor 中配置 MCP
     echo.
-    echo 请将以下配置添加到 Cursor 的 MCP 配置文件中：
-    echo.
     echo ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    echo {
-    echo   "mcpServers": {
-    echo     "lanhu": {
-    echo       "url": "http://localhost:8000/mcp?role=Developer&name=YourName"
-    echo     }
-    echo   }
-    echo }
-    echo.
-    echo 提示：部分 AI 开发工具不支持 URL 中文参数，建议使用英文
+    call scripts\print-mcp-config.bat
     echo ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     echo.
     echo 配置方法：
