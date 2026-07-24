@@ -3557,7 +3557,8 @@ class LanhuExtractor:
             for item in sketch_data['info']:
                 find_slices(item)
 
-# Photoshop：蓝湖在根节点 type=ps，切图登记在 assets[]（isSlice），
+# Photoshop：蓝湖在根节点 type=ps，导出资源登记在 assets[]。
+        # 老数据可能标 isSlice，新数据可能只标 isAsset；
         # 实际 PNG/SVG 地址在对应 id 的图层 images.png_xxxhd / images.svg（与 convert_sketch_to_html 一致）
         if str(sketch_data.get('type') or '').lower() == 'ps':
             by_id: dict = {}
@@ -3583,13 +3584,20 @@ class LanhuExtractor:
             existing_ids = {s.get('id') for s in slices}
 
             for asset in sketch_data.get('assets') or []:
-                if not isinstance(asset, dict) or not asset.get('isSlice'):
+                if not isinstance(asset, dict):
                     continue
                 lid = asset.get('id')
                 if lid is None or lid in existing_ids:
                     continue
                 layer = by_id.get(lid)
                 if not isinstance(layer, dict):
+                    continue
+                if not (
+                    asset.get('isSlice')
+                    or asset.get('isAsset')
+                    or layer.get('isSlice')
+                    or layer.get('isAsset')
+                ):
                     continue
                 imgs = layer.get('images') or {}
                 download_url = imgs.get('png_xxxhd') or imgs.get('svg')
