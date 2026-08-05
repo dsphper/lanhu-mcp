@@ -2,6 +2,8 @@
 
 # 🎨 Lanhu MCP Server | 蓝湖MCP服务器2.0
 
+[![MCP Toplist](https://mcptoplist.com/badge/glama%2Fdsphper%2Flanhu-mcp.svg)](https://mcptoplist.com/server/glama%2Fdsphper%2Flanhu-mcp)
+
 **让所有 AI 助手共享团队知识，打破 AI IDE 孤岛**
 
 **lanhumcp | 蓝湖mcp | lanhu-mcp | 蓝湖AI助手 | 蓝湖skills | Lanhu AI Integration**
