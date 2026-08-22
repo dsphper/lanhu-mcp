@@ -941,9 +941,11 @@ def convert_sketch_to_html(sketch_data: dict, design_scale: float = 2.0,
                 return
             ltype = layer.get('type', '')
             if ltype in ('groupLayer', 'layerSection', 'symbolInstence', 'symbolInstance', 'artboard'):
-                # 检查是否有切图资源
+                # 检查是否有切图资源（旧 Sketch 格式: images.png_xxxhd/svg; Figma 新格式: image.imageUrl/svgUrl）
                 images = layer.get('images') or {}
-                if images.get('png_xxxhd') or images.get('svg'):
+                img_field = layer.get('image') or {}
+                if (images.get('png_xxxhd') or images.get('svg')
+                        or img_field.get('imageUrl') or img_field.get('svgUrl')):
                     layers.append(layer)
                 else:
                     for child in reversed(layer.get('layers', [])):
@@ -973,8 +975,11 @@ def convert_sketch_to_html(sketch_data: dict, design_scale: float = 2.0,
                 return
             ltype = layer.get('type', '')
             if ltype in ('groupLayer', 'layerSection', 'symbolInstence', 'symbolInstance', 'artboard'):
+                # 检查是否有切图资源（旧 Sketch 格式: images.png_xxxhd/svg; Figma 新格式: image.imageUrl/svgUrl）
                 images = layer.get('images') or {}
-                if images.get('png_xxxhd') or images.get('svg'):
+                img_field = layer.get('image') or {}
+                if (images.get('png_xxxhd') or images.get('svg')
+                        or img_field.get('imageUrl') or img_field.get('svgUrl')):
                     layers.append(layer)
                 else:
                     for child in reversed(layer.get('layers', [])):
@@ -1085,6 +1090,7 @@ def convert_sketch_to_html(sketch_data: dict, design_scale: float = 2.0,
         slice_url = ""
 
         images = L.get('images') or {}
+        img_field = L.get('image') or {}
         if images.get('png_xxxhd') or images.get('svg'):
             is_slice = True
             slice_url = images.get('png_xxxhd') or images.get('svg')
@@ -1092,6 +1098,18 @@ def convert_sketch_to_html(sketch_data: dict, design_scale: float = 2.0,
             local_path = f"./assets/slices/{local_name}"
             image_url_mapping[local_path] = slice_url
             annot['slice_url'] = slice_url
+        elif img_field.get('imageUrl') or img_field.get('svgUrl'):
+            # Figma 新格式: image {imageUrl(png), svgUrl(svg)} —— 编组/图标整体作为图片资源透出
+            is_slice = True
+            annot['slice_url'] = img_field.get('svgUrl') or img_field.get('imageUrl')
+            base_name = name.replace('/', '_').replace(' ', '_')
+            if img_field.get('svgUrl'):
+                annot['svg_url'] = img_field['svgUrl']
+                image_url_mapping[f"./assets/slices/{base_name}.svg"] = img_field['svgUrl']
+            if img_field.get('imageUrl'):
+                annot['png_url'] = img_field['imageUrl']
+                image_url_mapping[f"./assets/slices/{base_name}.png"] = img_field['imageUrl']
+            slice_url = annot['slice_url']
 
         if ltype == 'textLayer' and (L.get('textInfo') or L.get('text')):
             ti = L.get('textInfo')  # board格式
@@ -6176,6 +6194,10 @@ async def lanhu_get_ai_analyze_design_result(
                                 summary_text += f" | text=\"{la['text'][:50]}\""
                             if la.get('slice_url'):
                                 summary_text += f" | slice={la['slice_url']}"
+                            if la.get('svg_url'):
+                                summary_text += f" | svg={la['svg_url']}"
+                            if la.get('png_url'):
+                                summary_text += f" | png={la['png_url']}"
                             summary_text += "\n"
                         summary_text += "\n"
 

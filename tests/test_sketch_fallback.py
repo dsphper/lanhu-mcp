@@ -72,3 +72,43 @@ def test_convert_sketch_to_html_recurses_figma_group_layers():
         "font-family": "PingFang SC",
         "font-weight": "500",
     }
+
+
+def test_convert_sketch_to_html_keeps_figma_image_field_group():
+    """Figma 编组带 image{imageUrl,svgUrl} 时应整体作为图片资源保留，不展开子层。"""
+    sketch_data = {
+        "meta": {"device": "iOS @1x", "host": {"name": "figma"}},
+        "artboard": {
+            "frame": {"left": 0, "top": 0, "width": 375, "height": 1130},
+            "layers": [
+                {
+                    "name": "Robot Icon",
+                    "type": "groupLayer",
+                    "frame": {"left": 15, "top": 939, "width": 40, "height": 44},
+                    "image": {
+                        "imageUrl": "https://cdn.example.com/robot.png",
+                        "svgUrl": "https://cdn.example.com/robot.svg",
+                    },
+                    "layers": [
+                        {
+                            "name": "Ellipse 426",
+                            "type": "shapeLayer",
+                            "frame": {"left": 17, "top": 945, "width": 38, "height": 38},
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+    html, image_mapping, annotations = convert_sketch_to_html(sketch_data, 1.0)
+
+    # 带 image 字段的编组不再被展开成子层
+    assert [annotation["name"] for annotation in annotations] == ["Robot Icon"]
+    # 输出为 <img> 且 SVG/PNG 双版本进入映射表
+    assert "<img" in html
+    assert "robot.svg" in html
+    assert "./assets/slices/Robot_Icon.svg" in image_mapping
+    assert "./assets/slices/Robot_Icon.png" in image_mapping
+    assert annotations[0].get("svg_url") == "https://cdn.example.com/robot.svg"
+    assert annotations[0].get("png_url") == "https://cdn.example.com/robot.png"
