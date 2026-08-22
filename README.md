@@ -966,7 +966,7 @@ black lanhu_mcp_server.py
 ---
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=dsphper/lanhu-mcp&type=date&legend=top-left)](https://www.star-history.com/#dsphper/lanhu-mcp&type=date&legend=top-left)
+[![Star History Chart](https://star-history.dera.page/svg?repos=dsphper/lanhu-mcp&type=date&legend=top-left)](https://star-history.dera.page/#dsphper/lanhu-mcp&type=date&legend=top-left)
 
 ---
 
