@@ -806,6 +806,17 @@ def _oc_to_css(oc_code: str) -> str:
     return ';'.join(css)
 
 
+def _get_sketch_design_scale(sketch_data: dict) -> float:
+    """从 Sketch/Figma 元数据中获取设计坐标缩放比。"""
+    meta = sketch_data.get('meta') or {}
+    device = str(sketch_data.get('device') or meta.get('device') or '').lower()
+    for scale in (3, 2, 1):
+        if f'@{scale}x' in device:
+            return float(scale)
+    # Figma artboard 的 frame 已经是逻辑坐标；旧 board 数据默认按 @2x 导出。
+    return 1.0 if 'artboard' in sketch_data else 2.0
+
+
 def convert_sketch_to_html(sketch_data: dict, design_scale: float = 2.0,
                            design_img_url: str = "") -> str:
     """
@@ -929,10 +940,12 @@ def convert_sketch_to_html(sketch_data: dict, design_scale: float = 2.0,
                     _flatten(child)
                 return
             ltype = layer.get('type', '')
-            if ltype in ('layerSection', 'symbolInstence', 'artboard'):
-                # 检查是否有切图资源
+            if ltype in ('groupLayer', 'layerSection', 'symbolInstence', 'symbolInstance', 'artboard'):
+                # 检查是否有切图资源（旧 Sketch 格式: images.png_xxxhd/svg; Figma 新格式: image.imageUrl/svgUrl）
                 images = layer.get('images') or {}
-                if images.get('png_xxxhd') or images.get('svg'):
+                img_field = layer.get('image') or {}
+                if (images.get('png_xxxhd') or images.get('svg')
+                        or img_field.get('imageUrl') or img_field.get('svgUrl')):
                     layers.append(layer)
                 else:
                     for child in reversed(layer.get('layers', [])):
@@ -961,9 +974,12 @@ def convert_sketch_to_html(sketch_data: dict, design_scale: float = 2.0,
                     _flatten(child)
                 return
             ltype = layer.get('type', '')
-            if ltype == 'layerSection':
+            if ltype in ('groupLayer', 'layerSection', 'symbolInstence', 'symbolInstance', 'artboard'):
+                # 检查是否有切图资源（旧 Sketch 格式: images.png_xxxhd/svg; Figma 新格式: image.imageUrl/svgUrl）
                 images = layer.get('images') or {}
-                if images.get('png_xxxhd') or images.get('svg'):
+                img_field = layer.get('image') or {}
+                if (images.get('png_xxxhd') or images.get('svg')
+                        or img_field.get('imageUrl') or img_field.get('svgUrl')):
                     layers.append(layer)
                 else:
                     for child in reversed(layer.get('layers', [])):
@@ -1074,6 +1090,7 @@ def convert_sketch_to_html(sketch_data: dict, design_scale: float = 2.0,
         slice_url = ""
 
         images = L.get('images') or {}
+        img_field = L.get('image') or {}
         if images.get('png_xxxhd') or images.get('svg'):
             is_slice = True
             slice_url = images.get('png_xxxhd') or images.get('svg')
@@ -1081,6 +1098,18 @@ def convert_sketch_to_html(sketch_data: dict, design_scale: float = 2.0,
             local_path = f"./assets/slices/{local_name}"
             image_url_mapping[local_path] = slice_url
             annot['slice_url'] = slice_url
+        elif img_field.get('imageUrl') or img_field.get('svgUrl'):
+            # Figma 新格式: image {imageUrl(png), svgUrl(svg)} —— 编组/图标整体作为图片资源透出
+            is_slice = True
+            annot['slice_url'] = img_field.get('svgUrl') or img_field.get('imageUrl')
+            base_name = name.replace('/', '_').replace(' ', '_')
+            if img_field.get('svgUrl'):
+                annot['svg_url'] = img_field['svgUrl']
+                image_url_mapping[f"./assets/slices/{base_name}.svg"] = img_field['svgUrl']
+            if img_field.get('imageUrl'):
+                annot['png_url'] = img_field['imageUrl']
+                image_url_mapping[f"./assets/slices/{base_name}.png"] = img_field['imageUrl']
+            slice_url = annot['slice_url']
 
         if ltype == 'textLayer' and (L.get('textInfo') or L.get('text')):
             ti = L.get('textInfo')  # board格式
@@ -3557,7 +3586,8 @@ class LanhuExtractor:
             for item in sketch_data['info']:
                 find_slices(item)
 
-# Photoshop：蓝湖在根节点 type=ps，切图登记在 assets[]（isSlice），
+# Photoshop：蓝湖在根节点 type=ps，导出资源登记在 assets[]。
+        # 老数据可能标 isSlice，新数据可能只标 isAsset；
         # 实际 PNG/SVG 地址在对应 id 的图层 images.png_xxxhd / images.svg（与 convert_sketch_to_html 一致）
         if str(sketch_data.get('type') or '').lower() == 'ps':
             by_id: dict = {}
@@ -3583,13 +3613,20 @@ class LanhuExtractor:
             existing_ids = {s.get('id') for s in slices}
 
             for asset in sketch_data.get('assets') or []:
-                if not isinstance(asset, dict) or not asset.get('isSlice'):
+                if not isinstance(asset, dict):
                     continue
                 lid = asset.get('id')
                 if lid is None or lid in existing_ids:
                     continue
                 layer = by_id.get(lid)
                 if not isinstance(layer, dict):
+                    continue
+                if not (
+                    asset.get('isSlice')
+                    or asset.get('isAsset')
+                    or layer.get('isSlice')
+                    or layer.get('isAsset')
+                ):
                     continue
                 imgs = layer.get('images') or {}
                 download_url = imgs.get('png_xxxhd') or imgs.get('svg')
@@ -5957,12 +5994,7 @@ async def lanhu_get_ai_analyze_design_result(
                             hr['design_tokens'] = design_tokens
                             break
                 elif not html_succeeded:
-                    device_str = sketch_json.get('device', '')
-                    _design_scale = 2.0
-                    if '@3x' in device_str:
-                        _design_scale = 3.0
-                    elif '@1x' in device_str:
-                        _design_scale = 1.0
+                    _design_scale = _get_sketch_design_scale(sketch_json)
 
                     _design_img_url = design['url'].split('?')[0]
                     fallback_html, fallback_img_mapping, fallback_layer_annots = convert_sketch_to_html(
@@ -6162,6 +6194,10 @@ async def lanhu_get_ai_analyze_design_result(
                                 summary_text += f" | text=\"{la['text'][:50]}\""
                             if la.get('slice_url'):
                                 summary_text += f" | slice={la['slice_url']}"
+                            if la.get('svg_url'):
+                                summary_text += f" | svg={la['svg_url']}"
+                            if la.get('png_url'):
+                                summary_text += f" | png={la['png_url']}"
                             summary_text += "\n"
                         summary_text += "\n"
 

@@ -252,7 +252,8 @@ python lanhu_mcp_server.py
 
 **按需启动（stdio，本地 MCP 客户端推荐）：**
 ```bash
-./run-stdio.sh
+./run-stdio.sh # Linux/Mac
+./run-stdio.bat # Windows
 ```
 
 `run-stdio.sh` 会自动进入项目目录、读取 `.env`，并以 stdio 方式启动 MCP 服务。适合 Cursor、Claude Code 等支持 `command` / `args` 配置的客户端按需拉起服务，无需手动常驻启动 HTTP 服务。
@@ -294,6 +295,8 @@ docker-compose down              # 停止
 ```
 
 **按需启动配置示例（无需提前启动服务）：**
+
+Linux/Mac
 ```json
 {
   "mcpServers": {
@@ -302,6 +305,21 @@ docker-compose down              # 停止
       "args": [
         "<ABSOLUTE_PATH_TO_LANHU_MCP>/run-stdio.sh"
       ],
+      "env": {
+        "LANHU_USER_NAME": "YourName",
+        "LANHU_USER_ROLE": "Developer"
+      }
+    }
+  }
+}
+```
+
+Windows
+```json
+{
+  "mcpServers": {
+    "lanhu": {
+      "command": "<ABSOLUTE_PATH_TO_LANHU_MCP>/run-stdio.bat",
       "env": {
         "LANHU_USER_NAME": "YourName",
         "LANHU_USER_ROLE": "Developer"
@@ -948,7 +966,7 @@ black lanhu_mcp_server.py
 ---
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=dsphper/lanhu-mcp&type=date&legend=top-left)](https://www.star-history.com/#dsphper/lanhu-mcp&type=date&legend=top-left)
+[![Star History Chart](https://star-history.dera.page/svg?repos=dsphper/lanhu-mcp&type=date&legend=top-left)](https://star-history.dera.page/#dsphper/lanhu-mcp&type=date&legend=top-left)
 
 ---
 
@@ -1006,4 +1024,4 @@ black lanhu_mcp_server.py
 
 如有任何疑问或建议，欢迎通过 [GitHub Issues](https://github.com/dsphper/lanhu-mcp/issues) 与我们交流。
 
-<!-- Last checked: 2026-07-13 06:50 -->
+<!-- Last checked: 2026-09-07 08:54 -->
