@@ -1024,4 +1024,4 @@ black lanhu_mcp_server.py
 
 如有任何疑问或建议，欢迎通过 [GitHub Issues](https://github.com/dsphper/lanhu-mcp/issues) 与我们交流。
 
-<!-- Last checked: 2026-09-08 22:21 -->
+<!-- Last checked: 2026-09-09 03:04 -->
