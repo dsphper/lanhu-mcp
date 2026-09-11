@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-09-10
+
+### Added
+- Versioned visual design overviews and node/region queries with clean and numbered images.
+- Original asset download, decoding/hash checks, SVG/raster selection, MCP resource bundles, and a client installer.
+- UTF-16 text runs and explicit font dependencies; bounded large-image previews and native region requests.
+
+### Fixed
+- Sketch slice coordinates, stable source identity, hidden-parent handling, and explicit source/decoder gaps.
+- Installed CLI configuration and entry point; notification diagnostics no longer write to stdio protocol output.
+- Signed reference refresh, font inventory pagination, and downloaded variant validation.
+
+### Changed
+- Package version is maintained in one place; FastMCP/Pillow and runtime dependencies are aligned.
+- Replace timestamp-only commits with documentation checks; add offline CI, package/stdio smoke checks, and gated releases.
+
+See [v1.8.0 release notes](RELEASE_NOTES_v1.8.0.md) for upgrade steps and verified scope.
+
+## Initial release feature summary
+
 ### 🎉 Initial Release Features
 
 #### ✨ Added

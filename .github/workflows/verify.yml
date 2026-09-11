@@ -1,0 +1,151 @@
+name: Verify package
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.13']
+    env:
+      # CI uses synthetic fixtures and mocked responses, never account credentials.
+      LANHU_COOKIE: ci-placeholder-not-a-real-cookie
+      DDS_COOKIE: ci-placeholder-not-a-real-cookie
+      FEISHU_WEBHOOK_URL: ''
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install package and test dependencies
+        run: |
+          echo "DATA_DIR=$RUNNER_TEMP/lanhu-tests" >> "$GITHUB_ENV"
+          python -m pip install -e '.[dev]'
+          python -m pip check
+      - name: Run offline regression suite
+        run: python -m pytest
+
+  package:
+    name: Build and smoke-test distributions
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      LANHU_COOKIE: ci-placeholder-not-a-real-cookie
+      DDS_COOKIE: ci-placeholder-not-a-real-cookie
+      FEISHU_WEBHOOK_URL: ''
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Build sdist and wheel from the sdist
+        run: |
+          echo "DATA_DIR=$RUNNER_TEMP/lanhu-package-smoke" >> "$GITHUB_ENV"
+          python -m pip install build twine
+          python -m build
+          python -m twine check dist/*
+      - name: Install wheel in a fresh environment
+        run: |
+          python -m venv "$RUNNER_TEMP/lanhu-wheel-venv"
+          "$RUNNER_TEMP/lanhu-wheel-venv/bin/python" -m pip install dist/*.whl
+          "$RUNNER_TEMP/lanhu-wheel-venv/bin/python" -m pip check
+      - name: Exercise installed entry points outside the source checkout
+        working-directory: ${{ runner.temp }}
+        run: |
+          "$RUNNER_TEMP/lanhu-wheel-venv/bin/lanhu-mcp" --help
+          "$RUNNER_TEMP/lanhu-wheel-venv/bin/lanhu-mcp" --version
+          "$RUNNER_TEMP/lanhu-wheel-venv/bin/python" -m lanhu_design.install --help
+          "$RUNNER_TEMP/lanhu-wheel-venv/bin/python" - <<'PY'
+          import asyncio
+          import hashlib
+          import io
+          import json
+          import os
+          import subprocess
+          import sys
+          import tempfile
+          import zipfile
+          from pathlib import Path
+          from importlib.metadata import version
+          from fastmcp import Client
+          from fastmcp.client.transports import StdioTransport
+          from PIL import Image
+          import lanhu_mcp_server
+          import lanhu_design
+          import lanhu_design.service
+          import lanhu_design.install
+
+          workspace = Path(os.environ['GITHUB_WORKSPACE']).resolve()
+          for module in (lanhu_mcp_server, lanhu_design.service, lanhu_design.install):
+              assert not Path(module.__file__).resolve().is_relative_to(workspace), module.__file__
+          expected = lanhu_design.__version__
+          assert version('lanhu-mcp-server') == expected
+          print(f'Installed package {expected} imports independently of the checkout.')
+
+          async def check_stdio():
+              transport = StdioTransport(
+                  command=str(Path(sys.executable).parent / 'lanhu-mcp'),
+                  args=['--transport', 'stdio'],
+                  env={key: os.environ[key] for key in (
+                      'LANHU_COOKIE', 'DDS_COOKIE', 'DATA_DIR', 'FEISHU_WEBHOOK_URL')},
+                  cwd=str(Path.cwd()),
+                  log_file=Path(os.environ['RUNNER_TEMP']) / 'lanhu-wheel-stdio.log',
+              )
+              async with Client(transport, timeout=20) as client:
+                  tools = {tool.name for tool in await client.list_tools()}
+                  assert len(tools) >= 16, tools
+                  assert {'lanhu_get_design_overview', 'lanhu_inspect_design_region',
+                          'lanhu_export_design_assets'} <= tools
+              print('Installed stdio CLI completed an MCP handshake and listed visual tools.')
+
+          asyncio.run(check_stdio())
+          with tempfile.TemporaryDirectory(prefix='lanhu-wheel-install-', dir=os.environ['RUNNER_TEMP']) as temporary:
+              root = Path(temporary)
+              pixels = io.BytesIO()
+              Image.new('RGBA', (4, 4), (10, 20, 30, 255)).save(pixels, format='PNG')
+              data = pixels.getvalue()
+              asset = {'asset_id': 'smoke-asset', 'node_id': 'smoke-node',
+                       'relative_path': 'assets/smoke.png', 'bytes': len(data),
+                       'sha256': hashlib.sha256(data).hexdigest()}
+              manifest = {'status': 'complete', 'failed': [], 'assets': [asset],
+                          'design_id': 'synthetic-design', 'resolved_version': 'synthetic-version'}
+              bundle = root / 'bundle.zip'
+              with zipfile.ZipFile(bundle, 'w', zipfile.ZIP_DEFLATED) as archive:
+                  archive.writestr('manifest.json', json.dumps(manifest))
+                  archive.writestr(asset['relative_path'], data)
+              command = [sys.executable, '-m', 'lanhu_design.install', '--bundle', str(bundle),
+                         '--output', str(root / 'frontend')]
+              first = subprocess.run(command, check=True, capture_output=True, text=True, timeout=20)
+              receipt = json.loads(first.stdout)
+              assert receipt['installed'] == ['smoke-asset'], receipt
+              assert Path(receipt['assets'][0]['local_path']).read_bytes() == data
+              again = subprocess.run(command, check=True, capture_output=True, text=True, timeout=20)
+              assert json.loads(again.stdout)['skipped'] == ['smoke-asset']
+              print('Installed asset CLI wrote verified bytes and reused the identical file.')
+          PY
+      - uses: actions/upload-artifact@v7
+        with:
+          name: python-distributions
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 14

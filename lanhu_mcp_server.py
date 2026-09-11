@@ -5,6 +5,7 @@
 """
 import asyncio
 import os
+import sys
 import re
 import base64
 import json
@@ -13,19 +14,23 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import Annotated, Optional, Union, List, Any
 
-# 加载 .env 文件中的环境变量（必须在其他导入之前）
-# 注意：在 Docker 容器中，环境变量通常已由 docker-compose 通过 env_file 设置
-# load_dotenv() 默认不会覆盖已存在的环境变量，所以与 Docker Compose 兼容
+# 显式配置文件优先，其次源码旁 .env，最后启动目录 .env；不向上搜索。
+# override=False 保留进程环境变量（包括 Docker Compose env_file）的优先级。
+configured_env_file = os.getenv("LANHU_ENV_FILE")
+if configured_env_file is not None:
+    env_path = Path(configured_env_file).expanduser()
+    if not env_path.is_file():
+        raise FileNotFoundError(f"LANHU_ENV_FILE is not a file: {env_path}")
+else:
+    env_path = Path(__file__).resolve().parent / ".env"
+    if not env_path.is_file():
+        env_path = Path.cwd() / ".env"
+
 try:
     from dotenv import load_dotenv
-    # 从项目根目录加载 .env 文件（如果存在）
-    # override=False 确保不会覆盖已存在的环境变量（如 Docker Compose 设置的）
-    env_path = Path(__file__).parent / '.env'
-    if env_path.exists():
+
+    if env_path.is_file():
         load_dotenv(env_path, override=False)
-    else:
-        # 如果 .env 文件不存在，尝试从当前目录加载（用于本地开发）
-        load_dotenv(override=False)
 except ImportError:
     # 如果 python-dotenv 未安装，跳过加载（使用系统环境变量）
     pass
@@ -61,6 +66,7 @@ from fastmcp import Context
 from bs4 import BeautifulSoup
 from fastmcp import FastMCP
 from fastmcp.utilities.types import Image
+from mcp.types import TextContent
 from playwright.async_api import async_playwright
 
 # 创建FastMCP服务器
@@ -1988,16 +1994,16 @@ async def send_feishu_notification(
             # 飞书成功响应: {"code":0,"msg":"success"}
             if result.get("code") == 0:
                 if mention_names:
-                    print(f"✅ 飞书通知发送成功: {summary} @{','.join(mention_names)}")
+                    print(f"✅ 飞书通知发送成功: {summary} @{','.join(mention_names)}", file=sys.stderr)
                 else:
-                    print(f"✅ 飞书通知发送成功: {summary}")
+                    print(f"✅ 飞书通知发送成功: {summary}", file=sys.stderr)
                 return True
             else:
-                print(f"⚠️ 飞书通知发送失败: {result}")
+                print(f"⚠️ 飞书通知发送失败: {result}", file=sys.stderr)
                 return False
                 
     except Exception as e:
-        print(f"❌ 飞书通知发送异常: {e}")
+        print(f"❌ 飞书通知发送异常: {e}", file=sys.stderr)
         return False
 
 
@@ -3426,13 +3432,16 @@ class LanhuExtractor:
                         }
 
                     # 添加位置信息
-                    x = frame.get('x') or frame.get('left', 0)
-                    y = frame.get('y') or frame.get('top', 0)
-                    if x is not None or y is not None:
+                    x = next((v for v in (frame.get('x'), frame.get('left'), obj.get('left')) if v is not None), None)
+                    y = next((v for v in (frame.get('y'), frame.get('top'), obj.get('top')) if v is not None), None)
+                    if x is not None and y is not None:
                         slice_info['position'] = {
-                            'x': int(x),
-                            'y': int(y)
+                            'x': x,
+                            'y': y
                         }
+                    slice_info['asset_kind'] = 'exported_asset' if (
+                        obj.get('exportable') or obj.get('hasExportImage')
+                    ) else 'image_fill'
 
                     # 添加父图层信息
                     if parent_name:
@@ -3503,6 +3512,7 @@ class LanhuExtractor:
                     'id': obj.get('id'),
                     'name': current_name,
                     'type': obj.get('type') or obj.get('ddsType'),
+                    'asset_kind': 'render_fallback',
                     'download_url': dds_url,
                     'size': size_str,
                     'format': 'png',
@@ -5703,128 +5713,13 @@ async def lanhu_get_ai_analyze_design_result(
         design_names: Annotated[Union[str, List[str]], "Design name(s) or index number(s). 'all' = all designs. Number (e.g. 6) = the 6th item in lanhu_get_designs list (by 'index' field), NOT by name prefix. Exact name (e.g. '6_friend页_挂件墙') = match by full name. Get names/index from lanhu_get_designs first."],
         ctx: Context = None
 ) -> List[Union[str, Image]]:
-    """
-    [UI Design] Analyze Lanhu UI design images - GET VISUAL CONTENT + HTML CODE
-    
-    USE THIS WHEN user says: UI设计图, 设计图, 设计稿, 视觉设计, UI稿, 看看设计, 帮我看设计图, 设计评审
-    DO NOT USE for: 需求文档, PRD, 原型, 交互稿, Axure (use lanhu_get_ai_analyze_page_result instead)
-    DO NOT USE for: 切图, 图标, 素材 (use lanhu_get_design_slices instead)
-    
-    WORKFLOW: First call lanhu_get_designs to get design list, then call this to analyze specific designs.
-    
-    Returns:
-        Visual representation of UI design images AND HTML+CSS code for each design.
-        First block: summary text with "设计图 1/2/3..." and each design's HTML code.
-        Following blocks: images in the same order as 设计图 1, 2, 3... (image N = design N).
-        
-    CRITICAL - How to use the returned HTML+CSS (MUST follow this workflow):
+    """Legacy full-design preview and generated HTML/CSS reference.
 
-        ⚠️ AUTHORITY PRIORITY (highest → lowest):
-            1. HTML+CSS code  — the PRIMARY source of truth for all visual parameters
-            2. Design Tokens  — supplementary reference for gradients/borders/shadows
-            3. Design Image   — visual verification ONLY, never override CSS values
-
-        The returned HTML+CSS is the DESIGN SPECIFICATION generated from design schema.
-        Every CSS property value (color, size, spacing, font, gradient, border-radius,
-        etc.) is extracted from the original design data and MUST be used as-is.
-
-        RULE 1 - HTML+CSS IS DESIGN SPEC, COPY CSS VALUES DIRECTLY:
-            The CSS values are the single source of truth for all design parameters.
-            You MUST directly copy/reuse the exact CSS property values from the code.
-            DO NOT modify, simplify, or "improve" any CSS value. Specifically:
-              - DO NOT change rgba() to hex or vice versa (keep rgba(255,115,10,1) as-is)
-              - DO NOT round or simplify numbers (keep 0.30000001192092896 as-is)
-              - DO NOT replace linear-gradient with solid colors
-              - DO NOT change font-family order or remove fallback fonts
-              - DO NOT adjust margin/padding values for "cleaner" numbers
-              - DO NOT replace any img src or background-url with SVG, CSS shapes, or emoji
-              - DO NOT omit any visual element from the design
-            The HTML DOM structure and class names indicate layout intent (flex-row=Row,
-            flex-col=Column, justify-between=SpaceBetween, etc.), adapt them to the
-            target framework's component model while keeping all CSS values unchanged.
-
-        RULE 2 - DETECT USER PROJECT AND GENERATE FRAMEWORK-APPROPRIATE CODE:
-            STEP 1: Read project config files (package.json, tsconfig.json, pubspec.yaml,
-                    build.gradle, Podfile, etc.) to detect framework and styling approach.
-            STEP 2: Generate code matching the detected framework:
-              - React/Next.js  → JSX component + CSS Modules / styled-components / Tailwind
-              - Vue/Nuxt       → Single File Component (.vue) with <style scoped>
-              - Angular        → component.ts + component.html + component.css
-              - Svelte         → Component.svelte with <style>
-              - Flutter        → StatelessWidget with EdgeInsets, BoxDecoration, etc.
-              - SwiftUI        → View struct with ViewModifier
-              - Android Compose→ @Composable function with Modifier
-              - Plain HTML     → Single self-contained .html file with inline <style>
-            STEP 3: Follow the project's existing conventions (file naming, directory
-                    structure, styling approach). If no framework detected, default to
-                    plain HTML single file.
-            CSS-to-platform property mapping reference:
-              width/height px    → Android: dp, iOS: pt, Flutter: logical pixels
-              font-size px       → Android: sp, iOS: pt, Flutter: fontSize
-              margin/padding     → Keep proportions, convert px to dp/pt
-              border-radius      → Android: dp, iOS: cornerRadius, Flutter: BorderRadius
-              color rgba()       → Android: Color.argb(), iOS: UIColor, Flutter: Color
-              linear-gradient    → Android: GradientDrawable, iOS: CAGradientLayer
-              flex-row / flex-col→ Row/Column (Flutter), HStack/VStack (SwiftUI)
-              position:absolute  → Stack+Positioned (Flutter), ZStack (SwiftUI)
-
-        RULE 3 - IMAGE ASSETS USE LOCAL PATHS (MANDATORY):
-            The returned HTML+CSS already uses LOCAL paths (./assets/slices/xxx.png)
-            for all image resources. A download mapping table is provided below each
-            design's HTML code, listing: local_path ← remote_download_url.
-            You MUST:
-              1. Download ALL images from the mapping table to the project's local
-                 assets directory BEFORE generating final code.
-              2. Keep using local paths in the generated code. Adapt paths to the
-                 target framework convention:
-                   React/Vue   → import coverImg from '@/assets/slices/cover.png'
-                   Flutter     → AssetImage('assets/images/cover.png')
-                   Plain HTML  → <img src="./assets/slices/cover.png">
-              3. NEVER use remote lanhu CDN URLs in any generated code.
-            Additionally, call lanhu_get_design_slices(url, design_name) to get the
-            full slice list for more fine-grained assets (icons, background images, etc.).
-
-        RULE 4 - CROSS-REFERENCE DESIGN TOKENS (SUPPLEMENTARY ONLY):
-            Design Tokens (if present) are extracted from the raw Sketch data.
-            They serve as SUPPLEMENTARY reference for properties that HTML+CSS may
-            not fully express (e.g. complex gradients, multi-stop fills, shadows).
-            Use Design Tokens to ENRICH the code, not to override HTML+CSS values.
-            Only when a CSS property is clearly MISSING (not just different) from the
-            HTML+CSS, use the Design Token value as a supplement.
-            Focus on: gradients, border styles, border-radius, opacity, shadows.
-
-        RULE 5 - POST-GENERATION FIDELITY AUDIT (MANDATORY, NEVER SKIP):
-            After generating code in ANY target platform/language (HTML/CSS, React,
-            Vue, Flutter, SwiftUI, Android Compose, etc.), perform a property-by-property
-            comparison against the design spec HTML+CSS. Map each CSS property to its
-            platform equivalent and verify the value is preserved exactly:
-              ① size constraint: fixed height in spec → must NOT become flexible/wrap
-                  HTML: height not min-height | Flutter: fixed SizedBox, not Flexible
-                  SwiftUI: .frame(height:) not omitted | Compose: height() not wrapContent
-              ② clipping: overflow:hidden in spec → must clip content in all platforms
-                  HTML: overflow:hidden | Flutter: ClipRect/ClipRRect | SwiftUI: .clipped()
-                  Compose: clip()/clipToBounds | Android: android:clipChildren="true"
-              ③ color value: rgba(r,g,b,a) must be converted to platform format exactly
-                  HTML: keep rgba() | Flutter: Color.fromRGBO() | SwiftUI: Color(red:green:blue:opacity:)
-                  Compose: Color(r,g,b,a) | Android XML: #AARRGGBB — values must not drift
-              ④ gradient: linear-gradient must map to platform gradient, not solid color
-                  Flutter: LinearGradient | SwiftUI: LinearGradient | Compose: Brush.linearGradient
-              ⑤ absolute positioning: left/top values must map to exact offsets
-                  Flutter: Positioned(left:,top:) | SwiftUI: .offset() or .position()
-                  Compose: Box+Modifier.offset() | HTML: position:absolute + left/top
-              ⑥ font: family, weight, size must all be preserved; fallback list for HTML
-              ⑦ spacing: every margin/padding direction value must be unchanged
-                  HTML: margin/padding | Flutter: EdgeInsets | SwiftUI: .padding()
-                  Compose: Modifier.padding() | Android: android:layout_margin / android:padding
-              ⑧ image assets: no image replaced by SVG/CSS shape/emoji/placeholder
-              ⑨ element completeness: every visible element in spec must appear in code
-              ⑩ no remote URLs: no lanhu CDN URLs in any generated asset path
-            For each difference found, state explicitly whether it is an intentional
-            platform adaptation (e.g. px→dp unit conversion) or an error (value changed).
-            All errors MUST be corrected before delivering the final code.
-
-        DESIGN IMAGE is for visual verification ONLY. It has the LOWEST priority.
-        NEVER use the design image to override any CSS value from the HTML+CSS code.
+    Prefer lanhu_get_design_overview and lanhu_inspect_design_region for versioned,
+    ID-based visual evidence. Generated CSS is a derived layout suggestion; compare
+    with raw attributes and the reference image. A Sketch background-overlay fallback
+    is a reference rendering, not a component implementation. To download and verify
+    originals, use lanhu_export_design_assets with IDs from the new visual tools.
     """
     extractor = LanhuExtractor()
     try:
@@ -6035,87 +5930,10 @@ async def lanhu_get_ai_analyze_design_result(
         # Show design list with both image and HTML info（每条加显式标题便于多图时对应）
         summary_text += "📋 Design List (display order from top to bottom):\n"
         summary_text += "下方图片顺序与列表中「设计图 1」「设计图 2」… 一一对应，请按序号关联图片与代码。\n\n"
-        summary_text += "🚨 CRITICAL: 设计稿代码使用流程（必须按顺序执行）\n"
-        summary_text += "以下 HTML+CSS 是从设计稿 Schema 生成的【设计规格书】，是所有设计参数的权威来源。\n"
-        summary_text += "⚠️ 权威优先级: HTML+CSS 代码 > Design Tokens 标注 > 设计图图片\n"
-        summary_text += "⚠️ 核心原则: 直接复用 CSS 属性值，禁止修改/简化/美化任何 CSS 值\n\n"
-        summary_text += "STEP 1 - 探测用户项目环境：\n"
-        summary_text += "  读取项目配置文件（package.json / tsconfig.json / pubspec.yaml / build.gradle / Podfile 等）\n"
-        summary_text += "  识别框架: React/Vue/Angular/Svelte/Flutter/SwiftUI/Compose/纯HTML\n"
-        summary_text += "  识别样式方案: CSS Modules / Tailwind / SCSS / Styled Components / scoped style 等\n"
-        summary_text += "  识别项目目录结构和命名规范\n"
-        summary_text += "  如无法判断框架，默认输出纯 HTML 单文件\n\n"
-        summary_text += "STEP 2 - 下载图片资源到本地（必须在生成代码前完成）：\n"
-        summary_text += "  下方每个设计图的 HTML 代码中，图片已替换为本地路径（./assets/slices/xxx.png）\n"
-        summary_text += "  每个设计图下方附有「图片资源下载映射」，列出 本地路径 ← 远程下载地址\n"
-        summary_text += "  文件名已按 CSS 类名生成（如 thumbnail_54.png、group_1.png），具备初步语义。\n"
-        summary_text += "  ⚠️ 若文件名仍不够语义化，在下载时重命名为更清晰的英文名，并同步更新 HTML 中的路径引用。\n"
-        summary_text += "  必须按映射表下载所有图片到项目本地 assets 目录：\n"
-        summary_text += "    macOS/Linux → curl -o <path> \"<url>\"\n"
-        summary_text += "    Windows → PowerShell Invoke-WebRequest -Uri \"<url>\" -OutFile <path>\n"
-        summary_text += "  如需更多切图（图标、背景等），调用 lanhu_get_design_slices(url, design_name)\n\n"
-        summary_text += "STEP 3 - 生成框架适配代码（直接复用 CSS 值，禁止修改）：\n"
-        summary_text += "  从下方 HTML+CSS 直接复制所有 CSS 属性值（颜色/字号/间距/圆角/渐变等）\n"
-        summary_text += "  ⚠️ 必须原样使用 CSS 值，禁止做任何修改：\n"
-        summary_text += "    - rgba(255,115,10,1) 不要改成 #FF730A\n"
-        summary_text += "    - linear-gradient 不要简化成纯色\n"
-        summary_text += "    - margin/padding 数值不要四舍五入\n"
-        summary_text += "    - font-family 不要删减或重排\n"
-        summary_text += "  按目标框架生成组件代码：\n"
-        summary_text += "    React/Next.js  → JSX + CSS Modules 或跟随项目已有方案\n"
-        summary_text += "    Vue/Nuxt       → .vue SFC + <style scoped>\n"
-        summary_text += "    Angular        → .ts + .html + .css\n"
-        summary_text += "    Flutter        → Widget + EdgeInsets/BoxDecoration，px→逻辑像素\n"
-        summary_text += "    SwiftUI        → View + ViewModifier，px→pt\n"
-        summary_text += "    Android Compose → @Composable + Modifier，px→dp，font px→sp\n"
-        summary_text += "    纯 HTML         → 单个 .html 文件，内联 <style>（含 common.css 工具类）\n"
-        summary_text += "  图片路径按框架约定适配（代码中已是本地路径，只需调整路径格式）：\n"
-        summary_text += "    React/Vue → import img from '@/assets/slices/xxx.png'\n"
-        summary_text += "    Flutter   → AssetImage('assets/images/xxx.png')\n"
-        summary_text += "    纯 HTML   → <img src=\"./assets/slices/xxx.png\">（已就绪）\n\n"
-        summary_text += "STEP 4 - 对照 Design Tokens 补充校验（如下方包含 Design Tokens）：\n"
-        summary_text += "  Design Tokens 来自原始 Sketch 设计数据，作为补充参考。\n"
-        summary_text += "  优先级: HTML+CSS > Design Tokens > 设计图\n"
-        summary_text += "  仅当 HTML+CSS 中明显缺失某属性时，用 Design Token 补充：\n"
-        summary_text += "    如渐变填充、复杂阴影、多边圆角等 CSS 未能完整表达的属性\n"
-        summary_text += "  Design Token 不能覆盖 HTML+CSS 中已有的值。\n\n"
-        summary_text += "STEP 5 - 代码完成后逐属性还原度核查（必须执行，不得跳过）：\n"
-        summary_text += "  适用于所有目标平台：HTML/CSS、React、Vue、Flutter、SwiftUI、Compose、Android XML 等。\n"
-        summary_text += "  将设计稿 HTML+CSS 中每个属性映射到目标平台等价写法，逐一核查值是否还原：\n"
-        summary_text += "  ① 尺寸约束：设计稿固定 height 的地方，目标平台不得变为自适应/wrap\n"
-        summary_text += "     HTML: height 不能改成 min-height | Flutter: SizedBox 不能换成 Flexible\n"
-        summary_text += "     SwiftUI: .frame(height:) 不能省略 | Compose: height() 不能用 wrapContent\n"
-        summary_text += "  ② 裁剪：设计稿 overflow:hidden 的容器，各平台必须同步裁剪\n"
-        summary_text += "     HTML: overflow:hidden | Flutter: ClipRect/ClipRRect | SwiftUI: .clipped()\n"
-        summary_text += "     Compose: clip() | Android: android:clipChildren=\"true\"\n"
-        summary_text += "  ③ 颜色值：rgba(r,g,b,a) 转换到目标平台格式时，数值不得偏移\n"
-        summary_text += "     HTML: 保持 rgba() | Flutter: Color.fromRGBO() | SwiftUI: Color(red:green:blue:opacity:)\n"
-        summary_text += "     Compose: Color(r,g,b,a) | Android XML: #AARRGGBB，禁止四舍五入\n"
-        summary_text += "  ④ 渐变：linear-gradient 必须映射为平台渐变，不能退化为纯色\n"
-        summary_text += "     Flutter: LinearGradient | SwiftUI: LinearGradient | Compose: Brush.linearGradient\n"
-        summary_text += "  ⑤ 绝对定位：left/top 坐标值必须原样映射\n"
-        summary_text += "     Flutter: Positioned(left:,top:) | SwiftUI: .offset() | Compose: Modifier.offset()\n"
-        summary_text += "  ⑥ 字体：family、weight、size 三者都必须还原；HTML 还需保留 fallback 顺序\n"
-        summary_text += "  ⑦ 间距：每个方向的 margin/padding 数值不得改动\n"
-        summary_text += "     Flutter: EdgeInsets | SwiftUI: .padding() | Compose: Modifier.padding()\n"
-        summary_text += "     Android: android:layout_margin / android:padding\n"
-        summary_text += "  ⑧ 图片资源：任何图片不得被 SVG/CSS形状/emoji/占位图替换\n"
-        summary_text += "  ⑨ 元素完整性：设计稿中每个可见元素，目标代码中必须对应存在\n"
-        summary_text += "  ⑩ 远程 URL：最终代码中不得残留任何蓝湖 CDN 远程地址\n"
-        summary_text += "  核查结论：对每处差异明确说明是「有意的平台适配（如 px→dp 单位换算）」\n"
-        summary_text += "  还是「错误偏差（值发生了改变）」，错误偏差必须立即修正后再交付。\n\n"
-        summary_text += "❌ 严禁行为：\n"
-        summary_text += "  - 禁止修改 CSS 属性值（不要改颜色格式、不要简化渐变、不要调整数值）\n"
-        summary_text += "  - 禁止凭空编造设计参数（颜色、尺寸、间距等必须来自下方 CSS）\n"
-        summary_text += "  - 禁止用设计图的视觉感受覆盖 CSS 中的精确值\n"
-        summary_text += "  - 禁止用 SVG/CSS 形状/emoji 替换切图资源\n"
-        summary_text += "  - 禁止省略任何视觉元素\n"
-        summary_text += "  - 禁止在最终代码中使用蓝湖远程 URL\n\n"
-        summary_text += "📐 common.css 工具类含义（用于理解布局意图）：\n"
-        summary_text += "  flex-col = Column 方向布局    flex-row = Row 方向布局\n"
-        summary_text += "  justify-between/center/start/end/around/evenly = 主轴对齐\n"
-        summary_text += "  align-start/center/end = 交叉轴对齐\n\n"
-        
+        summary_text += "生成 HTML/CSS 是派生布局参考；原始标注和设计图用于核对转换结果。\n"
+        summary_text += "按节点/区域读取并固定版本，请用 lanhu_get_design_overview / lanhu_inspect_design_region。\n"
+        summary_text += "自动下载校验原始切图，请用 lanhu_export_design_assets。\n\n"
+
         success_image_results = [r for r in image_results if r['success']]
         success_html_results = {r['design_name']: r for r in html_results if r['success']}
         failed_html_by_name = {r['design_name']: r for r in html_results if not r['success']}
@@ -6146,7 +5964,7 @@ async def lanhu_get_ai_analyze_design_result(
 
                 if html_r.get('design_tokens'):
                     summary_text += f"\n   --- Design Tokens (高风险元素，权威参考) ---\n"
-                    summary_text += f"   以下参数来自原始设计数据，如 HTML+CSS 与此处冲突，以此处为准。\n\n"
+                    summary_text += f"   以下参数来自原始设计数据，如与生成 CSS 冲突，请结合来源属性与设计截图核对转换。\n\n"
                     summary_text += html_r['design_tokens']
                     summary_text += f"\n   --- End Design Tokens ---\n"
             else:
@@ -6341,177 +6159,13 @@ async def lanhu_get_design_slices(
             include_metadata=include_metadata
         )
 
-        # 5. Add AI workflow guide
+        # Legacy metadata stays available; the new workflow performs verified downloads.
         ai_workflow_guide = {
-            "instructions": "🤖 AI assistant must follow this workflow to process slice download tasks",
-            "language_requirement": "⚠️ IMPORTANT: Always respond to user in Chinese (中文回复)",
-            "FIRST_ACTION_REQUIRED": {
-                "action": "ASK_USER_SCALE_PREFERENCE",
-                "description": "在开始下载前，必须先向用户确认平台和倍率偏好",
-                "question_template": "请问您需要下载哪个平台的切图？\n\n**Web 端**\n- `1x` — {w1x}×{h1x}px（CSS 1倍图）\n- `2x` — {w2x}×{h2x}px（Retina / 原图，推荐）\n- `3x` — {w3x}×{h3x}px（超高清）\n\n**iOS**\n- `ios_1x` — @1x\n- `ios_2x` — @2x（同 Web 1x）\n- `ios_3x` — @3x\n\n**Android**\n- `android_xhdpi` — xhdpi（同 Web 1x）\n- `android_xxhdpi` — xxhdpi（同 iOS @3x）\n- `android_xxxhdpi` — xxxhdpi（原图）\n- 全套（mdpi/hdpi/xhdpi/xxhdpi/xxxhdpi）\n\n> 默认推荐：**Web 2x**（最高清，直接使用原图 URL，无需额外处理）",
-                "how_to_use_scale_urls": "每个 slice 的 scale_urls 字段包含所有倍率的 URL，根据用户选择取对应 key 的 URL 下载即可",
-                "scale_url_keys": {
-                    "Web 1x": "scale_urls.1x",
-                    "Web 2x (原图)": "scale_urls.2x",
-                    "Web 3x": "scale_urls.3x",
-                    "iOS @1x": "scale_urls.ios_1x",
-                    "iOS @2x": "scale_urls.ios_2x",
-                    "iOS @3x": "scale_urls.ios_3x",
-                    "Android mdpi":    "scale_urls.android_mdpi",
-                    "Android hdpi":    "scale_urls.android_hdpi",
-                    "Android xhdpi":   "scale_urls.android_xhdpi",
-                    "Android xxhdpi":  "scale_urls.android_xxhdpi",
-                    "Android xxxhdpi": "scale_urls.android_xxxhdpi"
-                },
-                "multi_scale_naming": {
-                    "Web 1x+2x":  "filename.png / filename@2x.png",
-                    "iOS all":    "filename.png / filename@2x.png / filename@3x.png",
-                    "Android all": "mipmap-mdpi/f.png, mipmap-hdpi/f.png, ... mipmap-xxxhdpi/f.png"
-                }
-            },
-            "workflow_steps": [
-                {
-                    "step": 0,
-                    "title": "询问用户下载平台和倍率（必须在下载前完成）",
-                    "mandatory": True,
-                    "tasks": [
-                        "展示切图列表摘要（总数 + 前3个名字）给用户",
-                        "列出可选平台：Web（1x/2x/3x）、iOS（@1x/@2x/@3x）、Android（全套/单倍率）",
-                        "等待用户明确选择，不要擅自假设默认值",
-                        "若用户不在意，推荐 Web 2x（原图 URL，无 OSS 参数，最简单）"
-                    ]
-                },
-                {
-                    "step": 1,
-                    "title": "Create TODO Task Plan",
-                    "tasks": [
-                        "Analyze project structure (read package.json, pom.xml, requirements.txt, etc.)",
-                        "Identify project type (React/Vue/Flutter/iOS/Android/Plain Frontend, etc.)",
-                        "Determine slice storage directory (e.g., src/assets/images/)",
-                        "Plan slice grouping strategy (by feature module, UI component, etc.)"
-                    ]
-                },
-                {
-                    "step": 2,
-                    "title": "Smart Directory Selection Rules",
-                    "rules": [
-                        "Priority 1: If user explicitly specified output_dir → use user-specified path",
-                        "Priority 2: If project has standard assets directory → use project convention (e.g., src/assets/images/slices/)",
-                        "Priority 3: If generic project → use design_slices/{design_name}/"
-                    ],
-                    "common_project_structures": {
-                        "React/Vue": ["src/assets/", "public/images/"],
-                        "Flutter": ["assets/images/"],
-                        "iOS": ["Assets.xcassets/"],
-                        "Android": ["res/drawable/", "res/mipmap/"],
-                        "Plain Frontend": ["images/", "assets/"]
-                    }
-                },
-                {
-                    "step": 3,
-                    "title": "文件命名规范",
-                    "primary_rule": "根据用户项目命名规范对 slice.name 进行语义化英文重命名，再加倍率后缀",
-                    "naming_workflow": [
-                        "1. 读取用户项目已有切图/资源文件，识别命名风格（snake_case / camelCase / kebab-case 等）",
-                        "2. 将 slice.name（可能是中文）翻译并语义化为英文，遵循识别到的命名风格",
-                        "3. 无法识别风格时默认 snake_case（如 icon_share、btn_confirm、img_empty_state）",
-                        "4. 加倍率后缀"
-                    ],
-                    "scale_suffix_convention": {
-                        "Web 1x":  "{name}.png",
-                        "Web 2x":  "{name}@2x.png",
-                        "Web 3x":  "{name}@3x.png",
-                        "iOS @1x": "{name}.png",
-                        "iOS @2x": "{name}@2x.png",
-                        "iOS @3x": "{name}@3x.png",
-                        "Android mdpi":    "mipmap-mdpi/{name}.png",
-                        "Android hdpi":    "mipmap-hdpi/{name}.png",
-                        "Android xhdpi":   "mipmap-xhdpi/{name}.png",
-                        "Android xxhdpi":  "mipmap-xxhdpi/{name}.png",
-                        "Android xxxhdpi": "mipmap-xxxhdpi/{name}.png"
-                    },
-                    "rename_examples": [
-                        {"slice_name": "线",           "renamed": "icon_line",            "Web 2x": "icon_line@2x.png"},
-                        {"slice_name": "img_成功申请精装", "renamed": "img_apply_success",   "Web 2x": "img_apply_success@2x.png"},
-                        {"slice_name": "申请被驳回",    "renamed": "img_apply_rejected",   "Web 2x": "img_apply_rejected@2x.png"},
-                        {"slice_name": "草地大背景",    "renamed": "bg_grass",             "Web 2x": "bg_grass@2x.png"},
-                        {"slice_name": "icon-导出",     "renamed": "icon_export",          "Web 2x": "icon_export@2x.png"}
-                    ],
-                    "duplicate_handling": "同名切图加序号后缀：icon_line.png / icon_line_2.png / icon_line_3.png"
-                },
-                {
-                    "step": 4,
-                    "title": "Environment Detection and Download Solution Selection",
-                    "principle": "AI must first detect current system environment and available tools, then autonomously select the best download solution",
-                    "priority_rules": [
-                        "Priority 1: Use system built-in download tools (curl/PowerShell/wget, etc.)",
-                        "Priority 2: If system tools unavailable, detect programming language environment (python/node, etc.)",
-                        "Priority 3: Create temporary script as last resort"
-                    ],
-                    "detection_steps": [
-                        "Step 1: Detect operating system type (Windows/macOS/Linux)",
-                        "Step 2: Sequentially detect available download tools",
-                        "Step 3: Autonomously select optimal solution based on detection results",
-                        "Step 4: Execute download task",
-                        "Step 5: Clean up temporary files (if any)"
-                    ],
-                    "common_tools_by_platform": {
-                        "Windows": {
-                            "built_in": ["PowerShell Invoke-WebRequest", "certutil"],
-                            "optional": ["curl (Win10 1803+ built-in)", "python", "node"]
-                        },
-                        "macOS": {
-                            "built_in": ["curl"],
-                            "optional": ["python", "wget", "node"]
-                        },
-                        "Linux": {
-                            "built_in": ["curl", "wget"],
-                            "optional": ["python", "node"]
-                        }
-                    },
-                    "important_principles": [
-                        "⚠️ Do not assume any tool is available, must detect first",
-                        "⚠️ Prefer system built-in tools, avoid third-party dependencies",
-                        "⚠️ Do not use fixed code templates or example code",
-                        "⚠️ Dynamically generate commands or scripts based on actual environment",
-                        "⚠️ Control concurrency when batch downloading",
-                        "⚠️ Must clean up temporary files after completion"
-                    ]
-                }
-            ],
-            "execution_workflow": {
-                "description": "Complete workflow that AI must autonomously complete",
-                "steps": [
-                    "Step 0: 展示切图摘要，询问用户需要哪个平台/倍率（必须等待用户回复）",
-                    "Step 1: Call lanhu_get_design_slices(url, design_name) to get slice info",
-                    "Step 2: Create TODO task plan (use todo_write tool)",
-                    "Step 3: Detect current operating system type",
-                    "Step 4: Detect available download tools by priority",
-                    "Step 5: Identify project type and determine output directory",
-                    "Step 6: 根据用户选择的倍率，从 slice.scale_urls 取对应 URL，生成智能文件名",
-                    "Step 7: Select optimal download solution based on detection results",
-                    "Step 8: Execute batch download task",
-                    "Step 9: Verify download results",
-                    "Step 10: Clean up temporary files and complete TODO"
-                ]
-            },
-            "important_notes": [
-                "🎯 AI 必须先询问用户需要下载哪个平台/倍率，不能擅自开始下载",
-                "📐 每个 slice 都有 scale_urls 字段，包含 1x/2x/3x 及 iOS/Android 全套 URL",
-                "⭐ Web 2x = scale_urls.2x = 原图 URL（无 OSS 参数，最简单），推荐首选",
-                "🍎 iOS 全套下载：ios_1x/ios_2x/ios_3x，文件名加 @2x/@3x 后缀",
-                "🤖 Android 全套下载：android_mdpi~xxxhdpi，分别放入对应 mipmap 目录",
-                "🎯 AI must proactively complete the entire workflow, don't just return info and wait for user action",
-                "📋 AI must use todo_write tool to create task plan, ensure orderly progress",
-                "🔍 AI must detect environment and tool availability first, then select download solution",
-                "⭐ AI must prefer system built-in tools, avoid third-party dependencies",
-                "🚫 AI must not use fixed code examples, must dynamically generate commands based on actual environment",
-                "✨ AI must smartly select output directory based on project structure, don't blindly use default path",
-                "🏷️ AI must generate semantic filenames based on slice's layer_path and parent_name",
-                "💻 AI must select corresponding download tools for different OS (Windows/macOS/Linux)",
-                "🧹 AI must clean up temporary files after completion (if any)",
-                "🗣️ AI must always respond to user in Chinese (中文回复)"
-            ]
+            "next_tools": ["lanhu_get_design_overview", "lanhu_inspect_design_region", "lanhu_export_design_assets"],
+            "identity": "Select stable design/node/asset IDs; layer names are labels only.",
+            "quality": "Use original source bytes and verify actual dimensions; 2x is not always the original scale.",
+            "automation": "Use the caller's existing platform and quality preferences without repeated prompts.",
+            "legacy_scope": "This tool lists URLs. Use the new export tool to download, validate and bundle assets.",
         }
 
         return {
@@ -6650,7 +6304,7 @@ async def lanhu_say(
         )
     except Exception as e:
         # 飞书通知失败不影响留言发布
-        print(f"⚠️ 飞书通知发送失败（不影响留言发布）: {e}")
+        print(f"⚠️ 飞书通知发送失败（不影响留言发布）: {e}", file=sys.stderr)
     
     return {
         "status": "success",
@@ -7089,7 +6743,7 @@ async def lanhu_say_edit(
             doc_url=metadata.get('doc_url')
         )
     except Exception as e:
-        print(f"⚠️ 飞书编辑通知发送失败（不影响编辑）: {e}")
+        print(f"⚠️ 飞书编辑通知发送失败（不影响编辑）: {e}", file=sys.stderr)
     
     return {
         "status": "success",
@@ -7182,15 +6836,125 @@ async def lanhu_get_members(
     }
 
 
-if __name__ == "__main__":
+# Versioned visual evidence. These tools expose source facts, not inferred business semantics.
+from lanhu_design.service import DesignError, DesignService
+from lanhu_design import __version__
+
+_design_service = DesignService(DATA_DIR / "design_context", COOKIE, DDS_COOKIE, HTTP_TIMEOUT)
+
+
+def _design_failure(exc: Exception) -> dict:
+    if isinstance(exc, DesignError):
+        return {"status": "error", "code": exc.code, "message": str(exc)}
+    if isinstance(exc, ValueError):
+        return {"status": "error", "code": "InvalidInput", "message": "Check the selection, region and export options."}
+    return {"status": "error", "code": "SourceUnavailable", "message": "Design operation failed; check source availability and credentials."}
+
+
+def _visual_tool_content(result: dict) -> list:
+    clean = result.pop("clean_image_bytes", None)
+    visual = result.pop("image_bytes")
+    result["image_order"] = ["clean_reference", "node_overlay"] if clean else ["reference_or_overlay"]
+    images = [Image(data=clean, format="png")] if clean else []
+    return [json.dumps(result, ensure_ascii=False), *images, Image(data=visual, format="png")]
+
+
+@mcp.tool()
+async def lanhu_get_design_overview(
+    url: str, design_id: Optional[str] = None, version_id: Optional[str] = None,
+    offset: int = 0, limit: int = 30, annotate: bool = False,
+) -> List[Union[str, Image, TextContent]]:
+    """Prepare an immutable UI design snapshot and return an image plus a paginated node index.
+
+    Use design_id from lanhu_get_designs to avoid ambiguous names. version_id defaults to
+    the URL version or the current version; pass 'latest' explicitly to override the URL.
+    Source names are labels, not semantics. Annotate adds stable N-number -> node_id labels.
+    Inspect a region or node IDs next, then export chosen asset IDs. No business component
+    classification is performed. All later calls use the returned snapshot_id.
+    """
+    try:
+        prepared = await _design_service.prepare(url, design_id, version_id)
+        result = _design_service.query(prepared["snapshot_id"], offset=offset, limit=limit,
+                                       annotate=annotate, include_styles=False)
+        return _visual_tool_content({**prepared, **result,
+                                     "font_requirements": prepared["font_requirements"],
+                                     "selected_font_requirements": result["font_requirements"]})
+    except Exception as exc:
+        return [TextContent(type="text", text=json.dumps(_design_failure(exc), ensure_ascii=False))]
+
+
+@mcp.tool()
+async def lanhu_inspect_design_region(
+    snapshot_id: str, region: Optional[dict] = None, node_ids: Optional[List[str]] = None,
+    offset: int = 0, limit: int = 30, annotate: bool = True, include_hidden: bool = False,
+) -> List[Union[str, Image, TextContent]]:
+    """Return a clear crop with stable node labels, source ancestors/styles and associated asset IDs.
+
+    Specify region={x,y,width,height} in source_canvas coordinates or explicit node_ids from
+    the overview. Results include the source-to-image scale, pagination and optional DDS
+    layout suggestions. Geometric overlap is a search filter, not a semantic component.
+    When annotated, the first image is clean and the second adds node labels.
+    Choose assets by visual evidence and IDs; names need not be meaningful.
+    """
+    try:
+        if not region and not node_ids:
+            raise DesignError("RegionRequired", "Specify a source-canvas region or node_ids.")
+        result = await _design_service.inspect(snapshot_id, region=region, node_ids=node_ids, offset=offset,
+                                               limit=limit, annotate=annotate, include_hidden=include_hidden)
+        return _visual_tool_content(result)
+    except Exception as exc:
+        return [TextContent(type="text", text=json.dumps(_design_failure(exc), ensure_ascii=False))]
+
+
+@mcp.tool()
+async def lanhu_export_design_assets(
+    snapshot_id: str, asset_ids: Optional[List[str]] = None,
+    kind: str = "exported_asset", target_dpr: float = 2, format_preference: str = "original",
+) -> dict:
+    """Download original design assets, verify pixels/hash and deliver a portable ZIP + manifest.
+
+    Prefer explicit asset_ids selected from visual context. Without IDs, kind defaults to
+    designer-exported assets; render_fallback/image_fill/all can be requested explicitly.
+    target_dpr checks source resolution; it never upscales or blindly assumes 2x is original.
+    format_preference: original, prefer_svg (explicit fallback when absent), or raster.
+    Read bundle_resource via MCP and run lanhu_design.install on the CLIENT to write assets
+    into its project. A server cache path is not a client path. Partial exports list failures.
+    """
+    try:
+        return await _design_service.export(snapshot_id, asset_ids, kind, target_dpr, format_preference)
+    except Exception as exc:
+        return _design_failure(exc)
+
+
+@mcp.resource("lanhu://design/{snapshot_id}/preview/{preview_id}", mime_type="image/png")
+def lanhu_design_preview(snapshot_id: str, preview_id: str) -> bytes:
+    """The exact crop generated by a visual design query."""
+    return _design_service.artifact(snapshot_id, "preview", preview_id)
+
+
+@mcp.resource("lanhu://design/{snapshot_id}/bundle/{bundle_id}", mime_type="application/zip")
+def lanhu_design_bundle(snapshot_id: str, bundle_id: str) -> bytes:
+    """Verified original assets and their portable manifest; install on the client."""
+    return _design_service.artifact(snapshot_id, "bundle", bundle_id)
+
+
+def main():
+    """Console entry point, also used by python lanhu_mcp_server.py."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Lanhu MCP: versioned design context and asset delivery")
+    parser.add_argument("--version", action="version", version=__version__)
+    parser.add_argument("--transport", choices=("http", "stdio"), default=os.getenv("MCP_TRANSPORT", "http").lower())
+    parser.add_argument("--host", default=os.getenv("SERVER_HOST", "0.0.0.0"))
+    parser.add_argument("--port", type=int, default=int(os.getenv("SERVER_PORT", "8000")))
+    args = parser.parse_args()
     # 运行MCP服务器
     # 默认使用HTTP传输；设置 MCP_TRANSPORT=stdio 时可由MCP客户端按需拉起。
-    MCP_TRANSPORT = os.getenv("MCP_TRANSPORT", "http").lower()
-    if MCP_TRANSPORT == "stdio":
+    if args.transport == "stdio":
         mcp.run(transport="stdio")
     else:
-        SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
-        SERVER_PORT = int(os.getenv("SERVER_PORT", "8000"))
+        SERVER_HOST = args.host
+        SERVER_PORT = args.port
         mcp_url = f"http://localhost:{SERVER_PORT}/mcp"
         print(f"\nCursor MCP 配置示例（端口来自 .env 的 SERVER_PORT={SERVER_PORT}）：")
         print("{")
@@ -7201,3 +6965,7 @@ if __name__ == "__main__":
         print("  }")
         print("}\n")
         mcp.run(transport="http", path="/mcp", host=SERVER_HOST, port=SERVER_PORT)
+
+
+if __name__ == "__main__":
+    main()

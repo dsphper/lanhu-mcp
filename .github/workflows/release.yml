@@ -2,141 +2,132 @@ name: Release
 
 on:
   push:
-    tags:
-      - 'v*.*.*'
+    tags: ['v*.*.*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  create-release:
-    name: Create Release
+  verify:
+    uses: ./.github/workflows/verify.yml
+  docs:
+    uses: ./.github/workflows/docs-check.yml
+
+  release-notes:
+    name: Validate version and curated release notes
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 5
     steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-    
-    - name: Generate Changelog
-      id: changelog
-      run: |
-        # Extract version from tag
-        VERSION=${GITHUB_REF#refs/tags/}
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
-        
-        # Generate changelog from commits
-        PREV_TAG=$(git describe --abbrev=0 --tags $(git rev-list --tags --skip=1 --max-count=1) 2>/dev/null || echo "")
-        if [ -z "$PREV_TAG" ]; then
-          CHANGELOG=$(git log --pretty=format:"- %s (%h)" --no-merges)
-        else
-          CHANGELOG=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges)
-        fi
-        
-        echo "changelog<<EOF" >> $GITHUB_OUTPUT
-        echo "$CHANGELOG" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
-    
-    - name: Create Release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ github.ref }}
-        release_name: Release ${{ steps.changelog.outputs.version }}
-        body: |
-          ## 🎉 Release ${{ steps.changelog.outputs.version }}
-          
-          ### 📝 Changes
-          ${{ steps.changelog.outputs.changelog }}
-          
-          ### 📦 Installation
-          
-          ```bash
-          git clone -b ${{ steps.changelog.outputs.version }} https://github.com/dsphper/lanhu-mcp.git
-          cd lanhu-mcp
-          pip install -r requirements.txt
-          ```
-          
-          ### 🐳 Docker
-          
-          ```bash
-          docker pull ghcr.io/dsphper/lanhu-mcp:${{ steps.changelog.outputs.version }}
-          ```
-          
-          ### 📖 Documentation
-          
-          See [README.md](https://github.com/dsphper/lanhu-mcp/blob/${{ steps.changelog.outputs.version }}/README.md) for full documentation.
-        draft: false
-        prerelease: false
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - name: Check tag matches package version and prepare notes
+        run: |
+          python - <<'PY'
+          import ast
+          import os
+          import re
+          from pathlib import Path
+
+          tag = os.environ['GITHUB_REF_NAME']
+          if not re.fullmatch(r'v\d+\.\d+\.\d+', tag):
+              raise SystemExit('Only stable vMAJOR.MINOR.PATCH tags are currently supported')
+          source = ast.parse(Path('lanhu_design/__init__.py').read_text(encoding='utf-8'))
+          version = next((ast.literal_eval(node.value) for node in source.body
+                          if isinstance(node, ast.Assign) and any(
+                              isinstance(target, ast.Name) and target.id == '__version__'
+                              for target in node.targets)), None)
+          if not isinstance(version, str):
+              raise SystemExit('Expected literal __version__ in lanhu_design/__init__.py')
+          if tag != f'v{version}':
+              raise SystemExit(f'Tag {tag} does not match package version {version}')
+          notes_path = Path(f'RELEASE_NOTES_{tag}.md')
+          if notes_path.is_file():
+              notes = notes_path.read_text(encoding='utf-8').strip()
+          else:
+              changelog = Path('CHANGELOG.md').read_text(encoding='utf-8')
+              section = re.search(
+                  rf'^##\s+\[{re.escape(version)}\][^\n]*\n(.*?)(?=^##\s|\Z)',
+                  changelog, re.M | re.S)
+              notes = section.group(1).strip() if section else ''
+          if not notes:
+              raise SystemExit(f'Write {notes_path} or a CHANGELOG.md section for [{version}] first')
+          Path(os.environ['RUNNER_TEMP'], 'release-notes.md').write_text(notes + '\n', encoding='utf-8')
+          print(f'Validated {tag}; using curated release notes (no generated commit dump).')
+          PY
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/release-notes.md
+          if-no-files-found: error
+          retention-days: 14
 
   docker-publish:
-    name: Publish Docker Image
+    name: Publish verified Docker image
+    needs: [verify, docs, release-notes]
     runs-on: ubuntu-latest
-    needs: create-release
-    
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-    
-    - name: Log in to GitHub Container Registry
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-    
-    - name: Extract metadata
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: ghcr.io/${{ github.repository }}
-        tags: |
-          type=semver,pattern={{version}}
-          type=semver,pattern={{major}}.{{minor}}
-          type=semver,pattern={{major}}
-          type=raw,value=latest
-    
-    - name: Build and push Docker image
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        push: true
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-        platforms: linux/amd64,linux/arm64
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Docker tags
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
 
-  pypi-publish:
-    name: Publish to PyPI (Future)
+  create-release:
+    name: Publish GitHub release and tested distributions
+    needs: [verify, docs, release-notes, docker-publish]
     runs-on: ubuntu-latest
-    needs: create-release
-    
+    timeout-minutes: 5
+    permissions:
+      contents: write
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
-    
-    - name: Install build dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install build twine
-    
-    - name: Build package
-      run: |
-        # 当 pyproject.toml 准备就绪时，取消注释：
-        # When pyproject.toml build config is ready, uncomment:
-        # python -m build
-        echo "✅ PyPI publishing will be enabled in future releases | PyPI 发布将在未来版本中启用"
-    
-    # Uncomment when ready to publish to PyPI
-    # - name: Publish to PyPI
-    #   env:
-    #     TWINE_USERNAME: __token__
-    #     TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-    #   run: |
-    #     twine upload dist/*
-
+      - uses: actions/download-artifact@v8
+        with:
+          name: python-distributions
+          path: dist
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-notes
+          path: notes
+      - name: Create release from the exact tested tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.whl dist/*.tar.gz \
+            --verify-tag --title "$GITHUB_REF_NAME" --notes-file notes/release-notes.md

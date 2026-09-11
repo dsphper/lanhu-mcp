@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+    branches: ['main', 'codex/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    uses: ./.github/workflows/verify.yml
+  docs:
+    uses: ./.github/workflows/docs-check.yml
+
+  container-smoke:
+    name: Build and run container without publishing
+    needs: [verify, docs]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Build the production Dockerfile
+        run: docker build --pull -t lanhu-mcp:ci .
+      - name: Check installed CLI and browser runtime without network
+        run: |
+          docker run --rm --network none --workdir /tmp lanhu-mcp:ci lanhu-mcp --version
+          docker run --rm --network none --workdir /tmp -i --entrypoint python lanhu-mcp:ci - <<'PY'
+          from importlib.metadata import version
+          import lanhu_design
+          from playwright.sync_api import sync_playwright
+
+          assert version('lanhu-mcp-server') == lanhu_design.__version__
+          with sync_playwright() as playwright:
+              browser = playwright.chromium.launch(headless=True)
+              page = browser.new_page(viewport={'width': 320, 'height': 200})
+              page.set_content('<h1>Lanhu container smoke</h1>')
+              assert page.locator('h1').inner_text() == 'Lanhu container smoke'
+              assert page.screenshot().startswith(b'\x89PNG\r\n\x1a\n')
+              browser.close()
+          print('Installed container package and Chromium are usable without account credentials.')
+          PY
+
+  draft-pr:
+    name: Open this version's draft PR
+    needs: [verify, docs, container-smoke]
+    if: >-
+      github.event_name == 'push' &&
+      github.repository == 'dsphper/lanhu-mcp' &&
+      github.ref == 'refs/heads/codex/visual-design-context'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Create draft only when there is no open PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_BRANCH: codex/visual-design-context
+        run: |
+          error_file="$RUNNER_TEMP/lanhu-draft-pr.stderr"
+          if ! existing=$(gh pr list --repo "$GH_REPO" --state open --base main \
+            --head "$PR_BRANCH" --json number --jq '.[0].number // empty' 2>"$error_file"); then
+            printf '%s\n' '::warning::Could not check existing pull requests; draft creation skipped. Test and documentation gates are unchanged.'
+            sed 's/^/gh: /' "$error_file"
+            exit 0
+          fi
+          if [ -n "$existing" ]; then
+            printf 'PR #%s already exists for %s; skipped creation.\n' "$existing" "$PR_BRANCH"
+            exit 0
+          fi
+          if [ ! -s RELEASE_NOTES_v1.8.0.md ]; then
+            printf '%s\n' '::warning::RELEASE_NOTES_v1.8.0.md is absent or empty; draft creation skipped.'
+            exit 0
+          fi
+          if gh pr create --repo "$GH_REPO" --draft --base main --head "$PR_BRANCH" \
+            --title 'feat: visual design context and verified assets (v1.8.0)' \
+            --body-file RELEASE_NOTES_v1.8.0.md 2>"$error_file"; then
+            exit 0
+          fi
+          pr_error=$(cat "$error_file")
+          if [[ "$pr_error" == *'not permitted to create or approve pull requests'* ]]; then
+            printf '%s\n' '::warning::Repository settings prevent GitHub Actions from creating this draft PR. Open the PR manually or change the repository setting yourself. No permission workaround was attempted.'
+          else
+            printf '%s\n' '::warning::Draft PR creation failed; open it manually. Test and documentation gates are unchanged, and no alternate credentials were used.'
+          fi
+          sed 's/^/gh: /' "$error_file"

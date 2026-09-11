@@ -33,6 +33,8 @@ logs/
 
 # Environment Variables
 .env
+.env.*
+!.env.example
 .env.local
 .env.*.local
 
@@ -68,4 +70,3 @@ tests/
 screenshots/
 test_output/
 test_results/
-

@@ -1,0 +1,62 @@
+name: Documentation checks
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - name: Check documented tools and local links without changing files
+        run: |
+          python - <<'PY'
+          import ast
+          import re
+          from pathlib import Path
+          from urllib.parse import unquote, urlsplit
+
+          root = Path.cwd()
+          tree = ast.parse((root / 'lanhu_mcp_server.py').read_text(encoding='utf-8'))
+          tools = set()
+          for node in tree.body:
+              if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                  continue
+              for decorator in node.decorator_list:
+                  call = decorator.func if isinstance(decorator, ast.Call) else decorator
+                  if (isinstance(call, ast.Attribute) and call.attr == 'tool'
+                          and isinstance(call.value, ast.Name) and call.value.id == 'mcp'):
+                      tools.add(node.name)
+          assert tools, 'No MCP tools found; update the documentation checker if registration changes'
+          errors = []
+          for filename in ('README.md', 'README_EN.md'):
+              content = (root / filename).read_text(encoding='utf-8')
+              documented = set(re.findall(r'^\|\s*`(lanhu_[a-z0-9_]+)`\s*\|', content, re.M))
+              if tools != documented:
+                  errors.append(f'{filename}: missing tools {sorted(tools - documented)}; '
+                                f'unknown tools {sorted(documented - tools)}')
+
+          for filename in ('README.md', 'README_EN.md', 'DESIGN_CONTEXT.md', 'MAINTAINING.md'):
+              document = root / filename
+              content = re.sub(r'```.*?```', '', document.read_text(encoding='utf-8'), flags=re.S)
+              for target in re.findall(r'\]\(([^\s)]+)(?:\s+[^)]*)?\)', content):
+                  url = urlsplit(target.strip('<>'))
+                  if url.scheme or url.netloc or not url.path:
+                      continue
+                  path = (document.parent / unquote(url.path)).resolve()
+                  if not path.is_relative_to(root) or not path.exists():
+                      errors.append(f'{filename}: missing or non-portable local link {target}')
+          if errors:
+              raise SystemExit('\n'.join(errors))
+          print(f'Documentation matches {len(tools)} MCP tools; local file links resolve.')
+          PY
