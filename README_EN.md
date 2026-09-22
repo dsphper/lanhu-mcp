@@ -137,6 +137,10 @@ export LANHU_COOKIE="your_lanhu_cookie_here"
 
 > 💡 Get Cookie: Log in to Lanhu web version, open browser developer tools, and copy Cookie from request headers
 
+HTTP MCP clients may instead send an `X-Lanhu-Cookie` header with every request. A non-empty header overrides
+`LANHU_COOKIE` and `DDS_COOKIE` for that request; requests without it keep using the environment variables.
+Use your client's secure header configuration rather than placing the cookie in a URL or tool argument.
+
 2. **Configure Feishu Bot** (Optional)
 
 **Method 1: Environment Variable (Recommended, Docker-friendly)**

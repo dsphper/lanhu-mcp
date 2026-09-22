@@ -65,6 +65,7 @@ import httpx
 from fastmcp import Context
 from bs4 import BeautifulSoup
 from fastmcp import FastMCP
+from fastmcp.server.dependencies import get_http_request
 from fastmcp.utilities.types import Image
 from mcp.types import TextContent
 from playwright.async_api import async_playwright
@@ -82,6 +83,17 @@ BASE_URL = "https://lanhuapp.com"
 DDS_BASE_URL = "https://dds.lanhuapp.com"
 CDN_URL = "https://axure-file.lanhuapp.com"
 DDS_COOKIE = os.getenv("DDS_COOKIE", COOKIE)
+
+
+def _get_request_cookies() -> tuple[str, str]:
+    """Return request credentials, falling back to process configuration."""
+    try:
+        header_cookie = get_http_request().headers.get("x-lanhu-cookie")
+    except RuntimeError:
+        header_cookie = None
+    if header_cookie and header_cookie.strip():
+        return header_cookie, header_cookie
+    return COOKIE, DDS_COOKIE
 
 # 飞书机器人Webhook配置（支持环境变量）
 DEFAULT_FEISHU_WEBHOOK = "https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook-key-here"
@@ -2338,7 +2350,6 @@ def get_user_info(ctx: Context) -> tuple:
     """
     try:
         # 使用 FastMCP 提供的 get_http_request 获取当前请求
-        from fastmcp.server.dependencies import get_http_request
         req = get_http_request()
         
         # 从 query 参数获取
@@ -2519,11 +2530,12 @@ class LanhuExtractor:
     CACHE_META_FILE = ".lanhu_cache.json"  # 缓存元数据文件名
 
     def __init__(self):
+        cookie, self.dds_cookie = _get_request_cookies()
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
             "Referer": "https://lanhuapp.com/web/",
             "Accept": "application/json, text/plain, */*",
-            "Cookie": COOKIE,
+            "Cookie": cookie,
             "sec-ch-ua": '"Chromium";v="142", "Google Chrome";v="142", "Not_A Brand";v="99"',
             "sec-ch-ua-mobile": "?0",
             "sec-ch-ua-platform": '"macOS"',
@@ -3742,7 +3754,7 @@ class LanhuExtractor:
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
             "Accept": "application/json, text/plain, */*",
             "Referer": "https://dds.lanhuapp.com/",
-            "Cookie": DDS_COOKIE,
+            "Cookie": self.dds_cookie,
             "Authorization": "Basic dW5kZWZpbmVkOg==",
         }
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, headers=dds_headers, follow_redirects=True) as dds_client:
@@ -4439,7 +4451,8 @@ async def lanhu_resolve_invite_link(
     try:
         # 解析Cookie字符串为playwright格式
         cookies = []
-        for cookie_str in COOKIE.split('; '):
+        cookie, _ = _get_request_cookies()
+        for cookie_str in cookie.split('; '):
             if '=' in cookie_str:
                 name, value = cookie_str.split('=', 1)
                 cookies.append({
@@ -6843,6 +6856,13 @@ from lanhu_design import __version__
 _design_service = DesignService(DATA_DIR / "design_context", COOKIE, DDS_COOKIE, HTTP_TIMEOUT)
 
 
+def _get_request_design_service() -> DesignService:
+    cookie, dds_cookie = _get_request_cookies()
+    if (cookie, dds_cookie) == (COOKIE, DDS_COOKIE):
+        return _design_service
+    return DesignService(DATA_DIR / "design_context", cookie, dds_cookie, HTTP_TIMEOUT)
+
+
 def _design_failure(exc: Exception) -> dict:
     if isinstance(exc, DesignError):
         return {"status": "error", "code": exc.code, "message": str(exc)}
@@ -6873,9 +6893,10 @@ async def lanhu_get_design_overview(
     classification is performed. All later calls use the returned snapshot_id.
     """
     try:
-        prepared = await _design_service.prepare(url, design_id, version_id)
-        result = _design_service.query(prepared["snapshot_id"], offset=offset, limit=limit,
-                                       annotate=annotate, include_styles=False)
+        service = _get_request_design_service()
+        prepared = await service.prepare(url, design_id, version_id)
+        result = service.query(prepared["snapshot_id"], offset=offset, limit=limit,
+                               annotate=annotate, include_styles=False)
         return _visual_tool_content({**prepared, **result,
                                      "font_requirements": prepared["font_requirements"],
                                      "selected_font_requirements": result["font_requirements"]})
@@ -6899,8 +6920,9 @@ async def lanhu_inspect_design_region(
     try:
         if not region and not node_ids:
             raise DesignError("RegionRequired", "Specify a source-canvas region or node_ids.")
-        result = await _design_service.inspect(snapshot_id, region=region, node_ids=node_ids, offset=offset,
-                                               limit=limit, annotate=annotate, include_hidden=include_hidden)
+        result = await _get_request_design_service().inspect(
+            snapshot_id, region=region, node_ids=node_ids, offset=offset,
+            limit=limit, annotate=annotate, include_hidden=include_hidden)
         return _visual_tool_content(result)
     except Exception as exc:
         return [TextContent(type="text", text=json.dumps(_design_failure(exc), ensure_ascii=False))]
@@ -6921,7 +6943,8 @@ async def lanhu_export_design_assets(
     into its project. A server cache path is not a client path. Partial exports list failures.
     """
     try:
-        return await _design_service.export(snapshot_id, asset_ids, kind, target_dpr, format_preference)
+        return await _get_request_design_service().export(
+            snapshot_id, asset_ids, kind, target_dpr, format_preference)
     except Exception as exc:
         return _design_failure(exc)
 
@@ -6929,13 +6952,13 @@ async def lanhu_export_design_assets(
 @mcp.resource("lanhu://design/{snapshot_id}/preview/{preview_id}", mime_type="image/png")
 def lanhu_design_preview(snapshot_id: str, preview_id: str) -> bytes:
     """The exact crop generated by a visual design query."""
-    return _design_service.artifact(snapshot_id, "preview", preview_id)
+    return _get_request_design_service().artifact(snapshot_id, "preview", preview_id)
 
 
 @mcp.resource("lanhu://design/{snapshot_id}/bundle/{bundle_id}", mime_type="application/zip")
 def lanhu_design_bundle(snapshot_id: str, bundle_id: str) -> bytes:
     """Verified original assets and their portable manifest; install on the client."""
-    return _design_service.artifact(snapshot_id, "bundle", bundle_id)
+    return _get_request_design_service().artifact(snapshot_id, "bundle", bundle_id)
 
 
 def main():

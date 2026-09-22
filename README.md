@@ -219,6 +219,10 @@ export LANHU_COOKIE="your_lanhu_cookie_here"
 
 > 💡 获取 Cookie：登录蓝湖网页版，打开浏览器开发者工具，从请求头中复制 Cookie
 
+HTTP MCP 客户端也可以在每个请求中发送 `X-Lanhu-Cookie` Header。非空 Header 会覆盖该次请求的
+`LANHU_COOKIE` 和 `DDS_COOKIE`；未发送时继续使用上述环境变量。请通过客户端的安全 Header 配置
+传递 Cookie，不要把它放在 URL 或工具参数中。
+
 2. **配置飞书机器人**（可选）
 
 **方式一：环境变量（推荐，支持 Docker）**
