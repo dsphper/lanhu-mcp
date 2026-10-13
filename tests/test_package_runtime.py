@@ -182,7 +182,7 @@ def without_design(name, *args, **kwargs):
 builtins.__import__ = without_design
 namespace = runpy.run_path(%r, run_name='lanhu_single_file')
 assert namespace['_design_service'] is None
-assert namespace['__version__'] == '1.8.6'
+assert namespace['__version__'] == '1.8.7'
 print('single-file requirement server import ok')
 """ % str(Path(__file__).parents[1] / "lanhu_mcp_server.py"),
         encoding="utf-8",
@@ -222,7 +222,7 @@ print(namespace['__version__'])
         timeout=30, env={**os.environ, "LANHU_FORCE_EMBEDDED_DESIGN": "1"},
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip().endswith("1.8.6")
+    assert result.stdout.strip().endswith("1.8.7")
 
 
 def test_embedded_design_payload_matches_modular_sources():

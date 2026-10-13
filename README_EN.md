@@ -14,6 +14,8 @@
 
 A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for reading Lanhu design documents, Axure prototypes, UI designs and source assets, with a server-local team message board.
 
+**v1.8.7 adds `socksio` for local stdio SOCKS proxies, optional `LANHU_DISABLE_SYSTEM_PROXY`, and a Docker-free stdio guide.** See [the release notes](RELEASE_NOTES_v1.8.7.md) and [LOCAL-STDIO.md](LOCAL-STDIO.md).
+
 **v1.8.6 adds focused requirement-region inspection by text, stable block ID, tile ID, or coordinates, and keeps long-page tiles full-width.** See [the release notes](RELEASE_NOTES_v1.8.6.md).
 
 **MCP client integration:**

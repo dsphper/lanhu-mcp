@@ -29,7 +29,9 @@
 
 一个面向蓝湖设计交付与需求阅读的 [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) 服务器。由 MCP 提供来源数据和资源，大模型结合画面理解并适配目标工程。
 
-**v1.8.6：需求页支持按文字、稳定块 ID、分块 ID 或坐标精确取局部图；长页分片保持横向完整。** [版本说明](RELEASE_NOTES_v1.8.6.md) · [设计工作流](DESIGN_CONTEXT.md) · [维护流程](MAINTAINING.md)
+**v1.8.7：本地 stdio 增加 `socksio` 与可选直连开关；新增免 Docker 本地启动指南。** [版本说明](RELEASE_NOTES_v1.8.7.md) · [LOCAL-STDIO](LOCAL-STDIO.md) · [设计工作流](DESIGN_CONTEXT.md)
+
+**v1.8.6：需求页支持按文字、稳定块 ID、分块 ID 或坐标精确取局部图；长页分片保持横向完整。** [版本说明](RELEASE_NOTES_v1.8.6.md)
 
 
 🔥 **核心创新**：
