@@ -276,6 +276,8 @@ venv\Scripts\lanhu-mcp.exe --transport http  # Windows
 
 `run-stdio.sh` 会自动进入项目目录、读取 `.env`，并以 stdio 方式启动 MCP 服务。适合 Cursor、Claude Code 等支持 `command` / `args` 配置的客户端按需拉起服务，无需手动常驻启动 HTTP 服务。
 
+📖 不依赖 Docker 的完整安装与注册步骤：[纯本地按需调用指南](LOCAL-STDIO.md)
+
 **Docker 运行：**
 ```bash
 docker-compose up -d              # 启动
@@ -357,6 +359,7 @@ Windows
 > 📌 stdio 环境变量说明：
 > - `LANHU_USER_ROLE`: 用户角色（Developer/Frontend/Backend/Tester/Product 等）
 > - `LANHU_USER_NAME`: 用户姓名（用于协作追踪和 @提醒）
+> - `LANHU_DISABLE_SYSTEM_PROXY`: 设为 `1` 时，`run-stdio.sh` / `run-stdio.bat` 清除继承的代理并设置 `NO_PROXY=*`，避免 httpx 回落系统代理（适用于 IDE 注入 SOCKS 导致失败等场景）；详见 [LOCAL-STDIO.md](LOCAL-STDIO.md)
 
 ## 🎯 提升 UI 还原度
 
@@ -895,6 +898,25 @@ set PLAYWRIGHT_CHROMIUM_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/chrome-
 venv\Scripts\python.exe -m playwright install chromium
 ```
 Playwright 1.58+ 的 Chromium 使用 Chrome for Testing 路径，因此不能只设置旧的 `PLAYWRIGHT_DOWNLOAD_HOST`。一键安装脚本会自动配置双源，并兼容旧版 Playwright 和官方 CDN。
+</details>
+
+<details>
+<summary><b>Q: 不用 Docker，本地 Python 按需启动（stdio）有哪些注意事项？</b></summary>
+
+A:
+
+1. 使用 Python 3.10–3.13（推荐 3.12），过新的版本可能缺少依赖的预编译包。
+2. 运行 `bash easy-install.sh` 创建 `venv` 并安装依赖与 Chromium；MCP 客户端配置里的路径指向 `run-stdio.sh` / `run-stdio.bat` 的绝对路径，不要移动项目或删除 `venv`。
+3. Intel Mac 上 `pip install` 若因 `cryptography` 需要编译 Rust 而失败，请强制使用预编译包：
+
+```bash
+./venv/bin/python -m pip install --only-binary cryptography -e .
+```
+
+4. 修改 MCP 配置或 `.env` 后，需要重启会话或在客户端里重连 MCP 才会生效。
+5. 依赖含 `socksio`，httpx 可使用 SOCKS 代理；若 IDE 注入不可用 SOCKS 或需强制直连，可在 MCP `env` 中设置 `LANHU_DISABLE_SYSTEM_PROXY=1`（见 [LOCAL-STDIO.md](LOCAL-STDIO.md)）。
+
+完整步骤见 [LOCAL-STDIO.md](LOCAL-STDIO.md)。
 </details>
 
 <details>

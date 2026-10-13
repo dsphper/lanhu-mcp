@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `LOCAL-STDIO.md`: Docker-free local Python stdio guide (clone, install, verify, register with common MCP clients).
+
+### Fixed
+- Add `socksio` dependency so httpx can use SOCKS proxies from the environment.
+- `run-stdio.sh` / `run-stdio.bat` support optional `LANHU_DISABLE_SYSTEM_PROXY=1` to clear inherited proxy variables and set `NO_PROXY=*` for direct connections during local stdio startup.
+
 ## [1.8.6] - 2026-09-24
 
 ### Added
