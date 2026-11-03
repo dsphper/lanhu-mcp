@@ -1001,7 +1001,7 @@ black lanhu_mcp_server.py
 
 - 提交 Issue: [GitHub Issues](https://github.com/dsphper/lanhu-mcp/issues)
 - 邮件: dsphper@gmail.com
-<p align="center"><img src="images/wechat.jpg?v=20261027" alt="微信群二维码" width="400" /></p>
+<p align="center"><img src="images/wechat.jpg?v=20261103" alt="微信群二维码" width="400" /></p>
 
 ## 🗺️ 路线图
 
