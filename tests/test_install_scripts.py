@@ -203,7 +203,7 @@ def test_windows_install_is_a_release_gate():
     assert "easy-install.bat" in workflow
     assert "playwright install chromium" in workflow
     assert "Windows Chromium launch succeeded" in workflow
-    assert "Windows MCP stdio handshake exposed 17 tools" in workflow
+    assert "Windows MCP stdio handshake exposed 18 tools" in workflow
     assert "needs: [tests, windows-install]" in workflow
 
 

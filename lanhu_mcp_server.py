@@ -10,6 +10,7 @@ import re
 import base64
 import json
 import hashlib
+import unicodedata
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import Annotated, Optional, Union, List, Any
@@ -517,7 +518,7 @@ except ImportError:
 
 # 东八区时区（北京时间）
 CHINA_TZ = timezone(timedelta(hours=8))
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs, urlencode
 from email.utils import parsedate_to_datetime
 
 # 元数据缓存配置（基于版本号的永久缓存）
@@ -6946,7 +6947,7 @@ def _normalize_design_sectors(sectors: List[dict]) -> tuple[List[dict], dict[str
     return normalized_sectors, image_sector_map
 
 
-async def _get_designs_internal(extractor: LanhuExtractor, url: str) -> dict:
+async def _get_designs_internal(extractor: LanhuExtractor, url: str, include_sector_paths: bool = False) -> dict:
     """内部函数：获取设计图列表"""
     # 解析URL获取参数
     params = extractor.parse_url(url)
@@ -6974,6 +6975,13 @@ async def _get_designs_internal(extractor: LanhuExtractor, url: str) -> dict:
         sector_data = sector_response.json()
 
         if sector_data.get('code') == '00000':
+            if include_sector_paths and not isinstance(sector_data.get('data', {}).get('sectors'), list):
+                raise ValueError("Invalid sector list")
+            if include_sector_paths and any(
+                not isinstance(sector, dict) or not sector.get('id') or not isinstance(sector.get('images'), list)
+                for sector in sector_data['data']['sectors']
+            ):
+                raise ValueError("Invalid sector entry")
             sector_list, image_sector_map = _normalize_design_sectors(
                 sector_data.get('data', {}).get('sectors', [])
             )
@@ -6996,6 +7004,16 @@ async def _get_designs_internal(extractor: LanhuExtractor, url: str) -> dict:
     # 提取设计图信息
     project_data = data.get('data', {})
     images = project_data.get('images', [])
+    if include_sector_paths and (
+        not isinstance(project_data.get('images'), list)
+        or not isinstance(project_data.get('name') or '', str)
+        or any(
+            not isinstance(img, dict) or not isinstance(img.get('id'), str) or not img['id']
+            or not isinstance(img.get('name') or '', str)
+            for img in images
+        )
+    ):
+        raise ValueError("Invalid design list")
 
     design_list = []
     for idx, img in enumerate(images, 1):
@@ -7011,6 +7029,8 @@ async def _get_designs_internal(extractor: LanhuExtractor, url: str) -> dict:
             'update_time': img.get('update_time'),
             'sectors': [sector.get('name') for sector in design_sectors if sector.get('name')]
         })
+        if include_sector_paths:
+            design_list[-1]['sector_paths'] = [sector['path'] for sector in design_sectors]
 
     result = {
         'status': 'success',
@@ -7026,6 +7046,194 @@ async def _get_designs_internal(extractor: LanhuExtractor, url: str) -> dict:
         result['sector_warning'] = f"Failed to load project sectors: {sector_warning}"
 
     return result
+
+
+def _team_search_text(value: str) -> str:
+    """Normalize search text without changing the source labels returned to callers."""
+    return unicodedata.normalize("NFKC", value).strip().casefold()
+
+
+def _team_search_id(url: Optional[str], team_id: Optional[str]) -> str:
+    """Resolve a team reference independently of the project-only URL parser."""
+    explicit = (team_id or "").strip()
+    from_url = ""
+    if url is not None:
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or parsed.netloc != "lanhuapp.com":
+            raise ValueError("url must be an HTTPS lanhuapp.com team link")
+        query = parsed.fragment.split("?", 1)[1] if "?" in parsed.fragment else parsed.query
+        values = parse_qs(query, keep_blank_values=True).get("tid", [])
+        if len(values) != 1 or not values[0].strip():
+            raise ValueError("url must contain exactly one non-empty tid")
+        from_url = values[0].strip()
+    if explicit and from_url and explicit != from_url:
+        raise ValueError("team_id conflicts with the URL tid")
+    resolved = explicit or from_url
+    if not resolved:
+        raise ValueError("Provide url or team_id")
+    return resolved
+
+
+async def _list_team_design_projects(extractor: LanhuExtractor, team_id: str) -> List[dict]:
+    """Read the workbench's complete flat file list and keep unique design projects."""
+    response = await extractor.client.post(
+        "https://lanhuapp.com/workbench/api/workbench/abstractfile/list",
+        json={"tenantId": team_id, "fid": "all"},
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict) or str(payload.get("code")) not in {"0", "00000"}:
+        raise ValueError("Team project list unavailable")
+    files = payload.get("data")
+    if not isinstance(files, list):
+        raise ValueError("Invalid team project list")
+    projects = {}
+    for item in files:
+        if not isinstance(item, dict):
+            raise ValueError("Invalid team project entry")
+        if item.get("sourceType") != "dc_prj":
+            continue
+        project_id = item.get("sourceId")
+        if not isinstance(project_id, str) or not project_id.strip():
+            raise ValueError("Missing design project ID")
+        if not isinstance(item.get("sourceName") or "", str):
+            raise ValueError("Invalid design project name")
+        projects.setdefault(project_id, {"id": project_id, "name": item.get("sourceName") or ""})
+    return list(projects.values())
+
+
+def _team_search_error_code(error: Exception) -> str:
+    """Return bounded diagnostics without exposing response bodies or authenticated URLs."""
+    if isinstance(error, httpx.HTTPStatusError):
+        return f"HTTP_{error.response.status_code}"
+    if isinstance(error, httpx.RequestError):
+        return "NetworkError"
+    return "InvalidResponse"
+
+
+@mcp.tool()
+async def lanhu_search_team_designs(
+    keyword: Annotated[str, "Non-empty design or group name keyword; NFKC/case-insensitive substring match"],
+    url: Annotated[
+        Optional[str], "Team link, e.g. https://lanhuapp.com/dashboard/#/item?tid=xxx; pid is unnecessary"
+    ] = None,
+    team_id: Annotated[Optional[str], "Team ID; required when url is omitted; must agree with URL tid"] = None,
+    limit: Annotated[int, "Results per page, 1-200; pagination slices a freshly scanned, sorted result list"] = 50,
+    offset: Annotated[int, "Non-negative offset into matched designs"] = 0,
+) -> dict:
+    """Search design and group names across accessible projects in one explicit team.
+
+    Use when only the application/design name and team link are known. No browser or
+    project ID is required. Each call scans project metadata (up to four projects at
+    once), then sorts and paginates matches; it does not download images. Repeated
+    pages rescan current data, so concurrent edits may move results between pages.
+    Check complete/failed_projects: group failures can hide group-only matches.
+    Use project_url + design_id with lanhu_get_design_overview; use project_url +
+    design_name with lanhu_get_design_slices only after disambiguating duplicate names.
+    """
+    try:
+        resolved_team = _team_search_id(url, team_id)
+        needle = _team_search_text(keyword)
+        if not needle:
+            raise ValueError("keyword must not be empty")
+        if type(limit) is not int or not 1 <= limit <= 200:
+            raise ValueError("limit must be an integer from 1 to 200")
+        if type(offset) is not int or offset < 0:
+            raise ValueError("offset must be a non-negative integer")
+    except ValueError as error:
+        return {"status": "error", "complete": False, "error_code": "InvalidArguments", "message": str(error)}
+
+    extractor = LanhuExtractor()
+    try:
+        try:
+            projects = await _list_team_design_projects(extractor, resolved_team)
+        except Exception as error:
+            return {
+                "status": "error",
+                "complete": False,
+                "error_code": _team_search_error_code(error),
+                "message": "Could not list team projects; no complete search was performed.",
+            }
+
+        semaphore = asyncio.Semaphore(4)
+
+        async def search_project(project: dict) -> tuple[List[dict], List[dict], bool]:
+            """Collect one project's matches and explicitly report incomplete metadata."""
+            project_url = "https://lanhuapp.com/web/#/item/project/stage?" + urlencode(
+                {"tid": resolved_team, "pid": project["id"]}
+            )
+            failure = {"project_id": project["id"], "project_name": project["name"]}
+            async with semaphore:
+                try:
+                    data = await _get_designs_internal(extractor, project_url, include_sector_paths=True)
+                    if data.get("status") != "success":
+                        raise ValueError("Design list unavailable")
+                    matches = {}
+                    for design in data["designs"]:
+                        paths = design["sector_paths"]
+                        matching_paths = [path for path in paths if needle in _team_search_text(path)]
+                        matched_by = []
+                        if needle in _team_search_text(design.get("name") or ""):
+                            matched_by.append("design_name")
+                        if matching_paths:
+                            matched_by.append("sector_name")
+                        if not matched_by:
+                            continue
+                        design_url = "https://lanhuapp.com/web/#/item/project/detailDetach?" + urlencode(
+                            {"tid": resolved_team, "pid": project["id"], "image_id": design["id"]}
+                        )
+                        matches.setdefault(
+                            design["id"],
+                            {
+                                "project_id": project["id"],
+                                "project_name": data.get("project_name") or project["name"],
+                                "design_id": design["id"],
+                                "design_name": design.get("name") or "",
+                                "sector_paths": paths,
+                                "matched_by": matched_by,
+                                "matched_sector_paths": matching_paths,
+                                "project_url": project_url,
+                                "design_url": design_url,
+                                "thumbnail_url": design.get("url"),
+                                "update_time": design.get("update_time"),
+                            },
+                        )
+                    failures = []
+                    if data.get("sector_warning"):
+                        failures.append({**failure, "stage": "sectors", "error_code": "GroupListUnavailable"})
+                    return list(matches.values()), failures, True
+                except Exception as error:
+                    return [], [{**failure, "stage": "designs", "error_code": _team_search_error_code(error)}], False
+
+        batches = await asyncio.gather(*(search_project(project) for project in projects))
+        matches = [match for batch, _, _ in batches for match in batch]
+        failures = [failure for _, batch, _ in batches for failure in batch]
+        matches.sort(
+            key=lambda item: (
+                _team_search_text(item["project_name"]),
+                _team_search_text(item["design_name"]),
+                item["project_id"],
+                item["design_id"],
+            )
+        )
+        has_more = offset + limit < len(matches)
+        return {
+            "status": "partial" if failures else "success",
+            "complete": not failures,
+            "team_id": resolved_team,
+            "keyword": keyword,
+            "total_projects": len(projects),
+            "searched_projects": sum(done for _, _, done in batches),
+            "failed_projects": failures,
+            "total_matches": len(matches),
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more,
+            "next_offset": offset + limit if has_more else None,
+            "designs": matches[offset : offset + limit],
+        }
+    finally:
+        await extractor.close()
 
 
 @mcp.tool()

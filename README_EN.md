@@ -128,7 +128,7 @@ Edit `.env` and replace `your_lanhu_cookie_here` with your Lanhu Cookie. macOS m
 
 With `uv`, create the environment first: `uv venv venv --python 3.13`, then run `uv pip install --python venv/bin/python -e .`.
 
-For an existing source checkout, upgrade dependencies with `python -m pip install -U -r requirements.txt` and reinstall the package with `python -m pip install -e .`. Restart the server and reconnect the MCP client so it discovers all 17 tools. Docker users should rebuild the image; restarting an old image does not load the new package or dependencies.
+For an existing source checkout, upgrade dependencies with `python -m pip install -U -r requirements.txt` and reinstall the package with `python -m pip install -e .`. Restart the server and reconnect the MCP client so it discovers all 18 tools. Docker users should rebuild the image; restarting an old image does not load the new package or dependencies.
 
 ### Single-file deployment upgrades
 
@@ -556,6 +556,29 @@ Show all knowledge base messages about "testing"
 
 ## 🛠️ Available Tools
 
+### Find an application's designs without knowing its project
+
+Call `lanhu_search_team_designs(keyword="Example App", url="https://lanhuapp.com/dashboard/#/item?tid=TEAM_ID")`,
+or supply `team_id="TEAM_ID"` instead of `url`. No project ID is needed.
+The tool uses NFKC-normalized, case-insensitive substring matching against design names
+and group paths (including ancestors). Duplicate names are retained; `matched_by` and
+`matched_sector_paths` identify why each design matched.
+
+Check `complete` first: project/group failures produce `status="partial"` and
+`failed_projects`. In that case, `total_matches` counts discovered matches only and
+does not establish that no other matches exist. Failed team discovery returns `status="error"`.
+Choose a result's `project_url` and `design_id`, call `lanhu_get_design_overview`,
+inspect the chosen nodes, then download slices with `lanhu_export_design_assets`.
+Alternatively, use `project_url` and `design_name` with `lanhu_get_design_slices` for
+slice metadata; prefer the ID-based workflow for duplicate names within a project.
+
+`limit` defaults to 50 (1–200); `offset` defaults to 0. Use `next_offset` for another page.
+Each call rescans accessible design projects with at most four projects in flight,
+then sorts and paginates matches. This is a project scan, not native team search or
+snapshot pagination; concurrent edits can move results between pages. The search
+only reads metadata: it does not download images, post messages or record collaborators.
+Existing project-level tools still require a project reference.
+
 | Tool Name | Description | Use Case |
 |-----------|-------------|----------|
 | `lanhu_resolve_invite_link` | Parse invite link | When user provides share link |
@@ -564,6 +587,7 @@ Show all knowledge base messages about "testing"
 | `lanhu_get_ai_analyze_page_result` | Analyze prototype pages; return full images and full-width detail strips for long pages | Extract requirement details |
 | `lanhu_inspect_requirement_region` | Return focused visual evidence by text, block ID, tile ID, or source coordinates | Resolve references such as “these two fields”, “below”, or “inside the red box” |
 | `lanhu_get_designs` | Get UI design list | Must call before viewing designs |
+| `lanhu_search_team_designs` | Search design/group names across team projects and return source references | Only the team link/ID and application name are known |
 | `lanhu_get_ai_analyze_design_result` | Analyze UI designs | View design drafts |
 | `lanhu_get_design_slices` | Get legacy slice URLs and metadata | Inspect available resources without installing files |
 | `lanhu_get_design_overview` | Pin a version and return a visual snapshot with stable node IDs | Start visual implementation from a specific design |
@@ -576,7 +600,7 @@ Show all knowledge base messages about "testing"
 | `lanhu_say_delete` | Delete message | Remove messages |
 | `lanhu_get_members` | View collaborators | View team members |
 
-The 17 tools include a server-local `lanhu_say*` message board; those messages are not Lanhu's native design review comments.
+The 18 tools include a server-local `lanhu_say*` message board; those messages are not Lanhu's native design review comments.
 
 ## 📁 Project Structure
 

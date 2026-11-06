@@ -436,6 +436,24 @@ AI 会自动：
 
 ## 🛠️ 可用工具列表
 
+### 只知道应用名时，跨项目查找设计稿
+
+调用 `lanhu_search_team_designs(keyword="示例应用", url="https://lanhuapp.com/dashboard/#/item?tid=TEAM_ID")`，
+也可用 `team_id="TEAM_ID"` 代替 `url`。无需提前知道项目 `pid`。
+关键词按 Unicode NFKC 规范化、忽略大小写进行子串匹配，同时搜索设计稿名称和所属分组路径（含上级分组）。
+同名设计稿全部保留，结果的 `matched_by` 和 `matched_sector_paths` 说明命中位置。
+
+先检查 `complete`：项目或分组读取失败时返回 `status="partial"` 和 `failed_projects`，
+此时 `total_matches` 仅代表已发现的结果，不能据此断言没有其他匹配。团队项目列表无法获取则返回 `status="error"`。
+从候选中选择正确的 `project_url`、`design_id`，调用 `lanhu_get_design_overview`，
+再通过局部检查和 `lanhu_export_design_assets` 下载所需切图。
+也可用 `project_url` 和 `design_name` 调用 `lanhu_get_design_slices` 获取切图元数据；同项目内设计稿重名时应优先用 ID 工作流。
+
+`limit` 默认 50（范围 1–200），`offset` 默认 0，后续页使用 `next_offset`。
+每次调用都会重新扫描当前团队可访问的设计项目，最多同时查询 4 个项目，随后排序并分页；
+这是按项目扫描，不是蓝湖原生团队搜索，也不是固定快照分页，期间设计稿变动可能导致跨页位置变化。
+搜索仅查询元数据，不下载图片、不发布留言、不记录协作者。现有项目级工具仍要求项目链接。
+
 | 工具名称 | 功能描述 | 使用场景 |
 |---------|---------|---------|
 | `lanhu_resolve_invite_link` | 解析邀请链接 | 用户提供分享链接时 |
@@ -444,6 +462,7 @@ AI 会自动：
 | `lanhu_get_ai_analyze_page_result` | 分析原型页面内容，长页返回完整图与横向完整细节分块 | 提取需求细节 |
 | `lanhu_inspect_requirement_region` | 按文字、块 ID、分块 ID 或坐标返回局部视觉证据 | 判断“这两个字段”“如下”“红框处”等模糊指代 |
 | `lanhu_get_designs` | 获取UI设计图列表 | 查看设计稿前必调用 |
+| `lanhu_search_team_designs` | 按设计稿名和分组名跨项目搜索，返回项目及设计稿定位信息 | 只有团队链接或 ID 与应用名称时 |
 | `lanhu_get_design_overview` | 固定版本，返回设计图与节点索引 | 按稳定ID读取设计 |
 | `lanhu_inspect_design_region` | 局部裁图、编号、样式与资源ID | 大模型结合视觉定位元素 |
 | `lanhu_export_design_assets` | 下载校验原始素材并提供资源包 | 自动安装到客户端工程 |
