@@ -10,6 +10,21 @@ Layer names can be duplicated or meaningless.
 
 ## Workflow
 
+If only a team reference and application name are known, first call
+`lanhu_search_team_designs(keyword, url=None, team_id=None, limit=50, offset=0)`.
+Supply the team dashboard URL or `team_id` (both must agree if provided together).
+This searches accessible design projects, matching NFKC/case-folded design names
+and full group paths, and returns project/design IDs and links with match reasons.
+Empty keywords are rejected. A group match includes designs in descendant groups;
+results are deduplicated by project/design ID, never by name.
+
+Check `complete` and `failed_projects` before concluding the search is exhaustive.
+Group failures retain design-name matches but mark the result partial. Team-list
+failure returns an error instead of an empty success. Pagination applies to sorted
+matches from a fresh scan (four concurrent projects maximum), not an immutable
+snapshot. No design images or assets are downloaded during search. Choose the
+correct result and pass its `project_url` and `design_id` into the workflow below.
+
 1. Use `lanhu_get_designs` to find a design ID.
 2. Call `lanhu_get_design_overview(url, design_id, version_id)` for a versioned
    snapshot, reference image, source canvas dimensions, and paginated node index.
