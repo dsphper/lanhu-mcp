@@ -291,7 +291,68 @@ docker-compose down              # 停止
 
 ### 连接到 AI 客户端
 
-在支持 MCP 的 AI 客户端（如 Claude Code、Cursor、Windsurf）中配置：
+在支持 MCP 的 AI 客户端（如 Claude Code、Cursor、Windsurf）中配置。
+
+#### 多账号：每个用户用自己的蓝湖身份（推荐）
+
+HTTP 服务可以被多个用户共用，每个请求带上自己的 Cookie，彼此完全隔离：凭证互不串号、缓存目录按账号分开。Cookie 走**请求头**而不是 URL，不会出现在反向代理的 access log 里。
+
+前提：服务端启动时不配置 `LANHU_COOKIE`（或至少让每个客户端都带自己的头），否则未带头的请求会回落到服务端的共享账号。
+
+**Claude Code**（`~/.claude.json` 顶层 `mcpServers`，或 `claude mcp add` 加 `--header`）：
+
+```json
+{
+  "mcpServers": {
+    "lanhu": {
+      "type": "http",
+      "url": "http://192.168.1.10:8000/mcp",
+      "headers": {
+        "X-Lanhu-Cookie": "${LANHU_COOKIE}",
+        "X-Lanhu-Name": "${LANHU_USER_NAME}",
+        "X-Lanhu-Role": "${LANHU_USER_ROLE}"
+      }
+    }
+  }
+}
+```
+
+**Codex**（`~/.codex/config.toml`，`env_http_headers` 填的是**变量名**而非值）：
+
+```toml
+[mcp_servers.lanhu]
+url = "http://192.168.1.10:8000/mcp"
+env_http_headers = { "X-Lanhu-Cookie" = "LANHU_COOKIE", "X-Lanhu-Name" = "LANHU_USER_NAME" }
+```
+
+**opencode**（`~/.config/opencode/opencode.json`，插值语法是 `{env:VAR}`）：
+
+```json
+{
+  "mcp": {
+    "lanhu": {
+      "type": "remote",
+      "url": "http://192.168.1.10:8000/mcp",
+      "headers": { "X-Lanhu-Cookie": "{env:LANHU_COOKIE}", "X-Lanhu-Name": "{env:LANHU_USER_NAME}" },
+      "oauth": false
+    }
+  }
+}
+```
+
+每个用户在自己机器上设置 `LANHU_COOKIE` 为**自己的**蓝湖 Cookie，客户端启动时读入并作为请求头发给服务端。容器/服务端本身不需要保存任何人的 Cookie。
+
+| 请求头 | 说明 |
+|---|---|
+| `X-Lanhu-Cookie` | 本次调用者的蓝湖 Cookie（必需，除非服务端配了共享账号） |
+| `X-Lanhu-Dds-Cookie` | 设计稿域名（`dds.lanhuapp.com`）的独立 Cookie；不填则复用 `X-Lanhu-Cookie` |
+| `X-Lanhu-Name` / `X-Lanhu-Role` | 留言板署名与 @提醒；不填则回落到 URL 的 `name`/`role` 参数、再回落到环境变量 |
+
+隔离范围：需求文档与设计稿的下载缓存、元数据缓存、设计快照都按 Cookie 哈希分目录（`data/ns-<hash>/…`），不同账号既读不到彼此的缓存，也不会因为删缓存互相影响。
+
+#### 单账号：全团队共用一个蓝湖账号
+
+服务端配置 `LANHU_COOKIE` 后，不带 `X-Lanhu-Cookie` 的请求会使用这个共享账号（便于兼容旧部署）；带了头的请求仍按自己的身份走。
 
 **Claude Code 配置示例：**
 ```json
