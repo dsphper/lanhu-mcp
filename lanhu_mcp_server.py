@@ -5,6 +5,7 @@
 """
 import asyncio
 import os
+import threading
 import sys
 import re
 import base64
@@ -555,13 +556,148 @@ mcp = FastMCP("Lanhu Axure Extractor")
 # 全局配置
 DEFAULT_COOKIE = "your_lanhu_cookie_here"  # 请替换为你的蓝湖Cookie，从浏览器开发者工具中获取
 
-# 从环境变量读取Cookie，如果没有则使用默认值
+# 环境变量中的Cookie，单租户/stdio 模式用它；HTTP 模式下每个请求还可以
+# 通过 X-Lanhu-Cookie 请求头携带自己的 Cookie（见 resolve_credentials）。
 COOKIE = os.getenv("LANHU_COOKIE", DEFAULT_COOKIE)
 
 BASE_URL = "https://lanhuapp.com"
 DDS_BASE_URL = "https://dds.lanhuapp.com"
 CDN_URL = "https://axure-file.lanhuapp.com"
 DDS_COOKIE = os.getenv("DDS_COOKIE", COOKIE)
+
+# HTTP 模式下客户端携带 Cookie 的请求头名。Cookie 走请求头而不是 URL 查询参数，
+# 这样不会出现在反向代理的 access log、浏览器历史和 Referer 里。
+LANHU_COOKIE_HEADER = "x-lanhu-cookie"
+LANHU_DDS_COOKIE_HEADER = "x-lanhu-dds-cookie"
+LANHU_ROLE_HEADER = "x-lanhu-role"
+LANHU_NAME_HEADER = "x-lanhu-name"
+
+
+def _normalize_cookie(value) -> str:
+    """去掉客户端可能带上的引号和首尾空白。
+
+    环境变量文件里的值常常写成 LANHU_COOKIE="a=1; b=2"，如果用户直接把带引号的
+    字符串塞进请求头，Cookie 头就是非法的，蓝湖会返回 401，且很难看出来。
+    """
+    if not value:
+        return ""
+    text = str(value).strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in ("'", '"'):
+        text = text[1:-1].strip()
+    return text
+
+
+def _request_headers() -> dict:
+    """取当前 HTTP 请求的头部；stdio 或后台任务下返回空 dict。"""
+    try:
+        from fastmcp.server.dependencies import get_http_headers
+
+        # get_http_headers 默认过滤掉 cookie 这类凭据头，必须显式 include。
+        return get_http_headers(include={
+            "cookie", LANHU_COOKIE_HEADER, LANHU_DDS_COOKIE_HEADER,
+            LANHU_ROLE_HEADER, LANHU_NAME_HEADER,
+        }) or {}
+    except Exception:
+        return {}
+
+
+def _header_value(headers: dict, name: str) -> str:
+    value = headers.get(name)
+    if value is None:
+        # 不同客户端/服务端对头部大小写的处理不一致，统一做一次兜底查找。
+        lowered = name.lower()
+        for key, candidate in headers.items():
+            if str(key).lower() == lowered:
+                return str(candidate)
+        return ""
+    return str(value)
+
+
+class Credentials:
+    """一次调用使用的蓝湖凭证。
+
+    每个请求独立解析，不写入任何模块级变量，避免并发调用之间串 Cookie。
+    """
+
+    __slots__ = ("cookie", "dds_cookie", "namespace")
+
+    def __init__(self, cookie: str, dds_cookie: str = ""):
+        self.cookie = cookie or ""
+        # 蓝湖的设计稿走另一个域名，允许单独配置 DDS Cookie；没配就复用同一个。
+        self.dds_cookie = dds_cookie or self.cookie
+        # 缓存命名空间：只由凭证派生，同一账号复用磁盘缓存，不同账号绝不共享目录。
+        digest = hashlib.sha256(f"{self.cookie}\n{self.dds_cookie}".encode("utf-8")).hexdigest()
+        self.namespace = f"ns-{digest[:24]}"
+
+    @property
+    def is_placeholder(self) -> bool:
+        return not self.cookie or self.cookie == DEFAULT_COOKIE
+
+    def masked(self) -> str:
+        """日志用：只暴露前缀，避免把完整 Cookie 写进日志文件。"""
+        if len(self.cookie) <= 12:
+            return "***" if self.cookie else ""
+        return f"{self.cookie[:6]}...{self.cookie[-4:]}"
+
+
+_ANONYMOUS_CREDENTIALS = object()
+
+
+def resolve_credentials() -> Credentials:
+    """解析本次调用的蓝湖凭证。
+
+    优先级：
+      1. 本次 HTTP 请求头 X-Lanhu-Cookie / X-Lanhu-DDS-Cookie（多租户）
+      2. 进程环境变量 LANHU_COOKIE / DDS_COOKIE（单租户，stdio 模式常用）
+      3. 默认占位符（此时调用蓝湖必然失败，由调用方给出明确提示）
+
+    结果只存在于本次调用的局部变量里，并发请求之间互不影响。
+    """
+    request = None
+    try:
+        from fastmcp.server.dependencies import get_http_request
+
+        request = get_http_request()
+    except Exception:
+        request = None
+
+    # 同一次工具调用内部可能多次取凭证（例如先解析 URL 再下载资源），
+    # 挂在本次请求对象上复用，避免重复读取请求头。
+    if request is not None:
+        cached = getattr(request, "_lanhu_credentials", None)
+        if cached is not None:
+            return cached
+
+    headers = _request_headers()
+    cookie = _normalize_cookie(_header_value(headers, LANHU_COOKIE_HEADER))
+    dds_cookie = _normalize_cookie(_header_value(headers, LANHU_DDS_COOKIE_HEADER))
+    if cookie:
+        # 请求方带了自己的身份，就必须整体按这个身份走。DDS 域名也不能回落到
+        # 服务端环境变量里的共享账号，否则别人的设计稿会用服务端账号的权限去拉，
+        # 等于多租户场景下的越权。没单独给 DDS Cookie 就复用同一个。
+        credentials = Credentials(cookie, dds_cookie or cookie)
+    else:
+        credentials = Credentials(
+            _normalize_cookie(COOKIE),
+            dds_cookie or _normalize_cookie(DDS_COOKIE),
+        )
+
+    if request is not None:
+        try:
+            request._lanhu_credentials = credentials
+        except Exception:
+            pass
+    return credentials
+
+
+def _scoped_data_dir(credentials: Credentials) -> Path:
+    """按凭证隔离的数据目录。
+
+    需求文档缓存按 docId 建目录，如果所有账号共用 DATA_DIR，A 用自己的账号拉到的
+    私有文档会被 B 通过同一个 docId 直接命中，等于绕过蓝湖权限。所以缓存路径必须
+    掺入凭证命名空间。
+    """
+    return DATA_DIR / credentials.namespace
 
 # 飞书机器人Webhook配置（支持环境变量）
 DEFAULT_FEISHU_WEBHOOK = "https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook-key-here"
@@ -2303,11 +2439,16 @@ def normalize_role(role: str) -> str:
     return role
 
 
-def _get_metadata_cache_key(project_id: str, doc_id: str = None) -> str:
-    """生成元数据缓存键（不含版本号，用于查找）"""
-    if doc_id:
-        return f"{project_id}_{doc_id}"
-    return project_id
+def _get_metadata_cache_key(project_id: str, doc_id: str = None, credentials: Credentials = None) -> str:
+    """生成元数据缓存键（不含版本号，用于查找）
+
+    键里带上凭证命名空间：元数据包含项目名、文档名、版本号等只有登录后才能看到
+    的信息，跨账号共享就等于泄露对方的项目清单。
+    """
+    base = f"{project_id}_{doc_id}" if doc_id else project_id
+    if credentials is not None:
+        return f"{credentials.namespace}:{base}"
+    return base
 
 
 def _get_cached_metadata(cache_key: str, version_id: str = None) -> Optional[dict]:
@@ -2836,16 +2977,23 @@ class MessageStore:
 
 def get_user_info(ctx: Context) -> tuple:
     """
-    从URL query参数获取用户信息
-    
-    MCP连接URL格式：http://xxx:port/mcp?role=后端&name=张三
-    stdio模式可通过 LANHU_USER_NAME 和 LANHU_USER_ROLE 环境变量获取
+    获取本次调用者的姓名与角色，用于留言板署名和 @提醒。
+
+    顺序：X-Lanhu-Name / X-Lanhu-Role 请求头 > URL query(role/name) >
+    LANHU_USER_NAME / LANHU_USER_ROLE 环境变量。
+    优先用请求头是因为 URL query 里的中文在各家客户端支持不一致，而且会进
+    反向代理的 access log；请求头更可靠也不落日志。
     """
+    headers = _request_headers()
+    name = _header_value(headers, LANHU_NAME_HEADER)
+    role = _header_value(headers, LANHU_ROLE_HEADER)
+    if name or role:
+        return name or os.getenv('LANHU_USER_NAME', '匿名'), role or os.getenv('LANHU_USER_ROLE', '未知')
     try:
         # 使用 FastMCP 提供的 get_http_request 获取当前请求
         from fastmcp.server.dependencies import get_http_request
         req = get_http_request()
-        
+
         # 从 query 参数获取
         name = req.query_params.get('name', '匿名')
         role = req.query_params.get('role', '未知')
@@ -2926,8 +3074,8 @@ async def _fetch_metadata_from_url(url: str) -> dict:
         if not project_id:
             return metadata
         
-        # 生成缓存键
-        cache_key = _get_metadata_cache_key(project_id, doc_id)
+        # 生成缓存键（按调用者凭证隔离）
+        cache_key = _get_metadata_cache_key(project_id, doc_id, credentials=extractor.credentials)
         
         # 如果有doc_id，获取文档信息和版本号
         version_id = None
@@ -2940,7 +3088,7 @@ async def _fetch_metadata_from_url(url: str) -> dict:
             if doc_info.get('_relocated_to_doc_id'):
                 doc_id = doc_info['_relocated_to_doc_id']
                 metadata['doc_id'] = doc_id
-                cache_key = _get_metadata_cache_key(project_id, doc_id)
+                cache_key = _get_metadata_cache_key(project_id, doc_id, credentials=extractor.credentials)
 
             # 获取版本ID
             versions = doc_info.get('versions', [])
@@ -3023,12 +3171,17 @@ class LanhuExtractor:
 
     CACHE_META_FILE = ".lanhu_cache.json"  # 缓存元数据文件名
 
-    def __init__(self):
+    def __init__(self, credentials: Credentials = None):
+        # HTTP 多租户模式下每个请求的 Cookie 不同，因此凭证只能按实例传入，
+        # 绝不能在模块级缓存，否则并发调用会互相串号、读到别人的项目权限。
+        self.credentials = credentials if credentials is not None else resolve_credentials()
+        self.cookie = self.credentials.cookie
+        self.dds_cookie = self.credentials.dds_cookie
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
             "Referer": "https://lanhuapp.com/web/",
             "Accept": "application/json, text/plain, */*",
-            "Cookie": COOKIE,
+            "Cookie": self.cookie,
             "sec-ch-ua": '"Chromium";v="142", "Google Chrome";v="142", "Not_A Brand";v="99"',
             "sec-ch-ua-mobile": "?0",
             "sec-ch-ua-platform": '"macOS"',
@@ -4246,7 +4399,7 @@ class LanhuExtractor:
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
             "Accept": "application/json, text/plain, */*",
             "Referer": "https://dds.lanhuapp.com/",
-            "Cookie": DDS_COOKIE,
+            "Cookie": self.dds_cookie,
             "Authorization": "Basic dW5kZWZpbmVkOg==",
         }
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, headers=dds_headers, follow_redirects=True) as dds_client:
@@ -5571,9 +5724,11 @@ async def lanhu_resolve_invite_link(
         Resolved URL and parsed parameters
     """
     try:
+        # Playwright 需要把 Cookie 拆成结构化格式；同样按本次调用者解析，不共享。
+        credentials = resolve_credentials()
         # 解析Cookie字符串为playwright格式
         cookies = []
-        for cookie_str in COOKIE.split('; '):
+        for cookie_str in credentials.cookie.split('; '):
             if '=' in cookie_str:
                 name, value = cookie_str.split('=', 1)
                 cookies.append({
@@ -6426,8 +6581,11 @@ async def lanhu_get_ai_analyze_page_result(
         doc_id = params['doc_id']
 
         # 设置输出目录（内部实现，自动管理）
-        resource_dir = str(DATA_DIR / f"axure_extract_{doc_id[:8]}")
-        output_dir = str(DATA_DIR / f"axure_extract_{doc_id[:8]}_screenshots")
+        # 缓存目录必须按本次调用者的凭证隔离：否则 A 账号拉到的私有文档
+        # 会被 B 账号用同一个 docId 直接命中，等于绕过蓝湖的权限控制。
+        scoped_dir = _scoped_data_dir(getattr(extractor, "credentials", None) or resolve_credentials())
+        resource_dir = str(scoped_dir / f"axure_extract_{doc_id[:8]}")
+        output_dir = str(scoped_dir / f"axure_extract_{doc_id[:8]}_screenshots")
 
         # 下载资源（支持智能缓存）
         download_result = await extractor.download_resources(url, resource_dir)
@@ -6743,9 +6901,10 @@ async def lanhu_inspect_requirement_region(
 
         params = extractor.parse_url(url)
         doc_id = params["doc_id"]
-        resource_dir = str(DATA_DIR / f"axure_extract_{doc_id[:8]}")
-        screenshot_dir = str(DATA_DIR / f"axure_extract_{doc_id[:8]}_screenshots")
-        region_dir = str(DATA_DIR / f"axure_extract_{doc_id[:8]}_regions")
+        scoped_dir = _scoped_data_dir(getattr(extractor, "credentials", None) or resolve_credentials())
+        resource_dir = str(scoped_dir / f"axure_extract_{doc_id[:8]}")
+        screenshot_dir = str(scoped_dir / f"axure_extract_{doc_id[:8]}_screenshots")
+        region_dir = str(scoped_dir / f"axure_extract_{doc_id[:8]}_regions")
         download_result = await extractor.download_resources(url, resource_dir)
         if download_result["status"] in ["downloaded", "updated"]:
             fix_html_files(resource_dir)
@@ -7156,7 +7315,8 @@ async def lanhu_get_ai_analyze_design_result(
                 f"⚠️ No matching design found\n\nAvailable designs:\n" + "\n".join(f"  • {name}" for name in available_names)]
 
         # 设置输出目录（内部实现，自动管理）
-        output_dir = DATA_DIR / 'lanhu_designs' / params['project_id']
+        # 设计图同样按调用者凭证隔离，避免跨账号读到对方的私有设计稿。
+        output_dir = _scoped_data_dir(getattr(extractor, "credentials", None) or resolve_credentials()) / 'lanhu_designs' / params['project_id']
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # 下载设计图并生成HTML
@@ -8220,10 +8380,36 @@ except ModuleNotFoundError as exc:
             super().__init__(message)
             self.code = code
 
-_design_service = (
-    DesignService(DATA_DIR / "design_context", COOKIE, DDS_COOKIE, HTTP_TIMEOUT)
-    if DesignService is not None else None
-)
+_design_services: dict[str, "DesignService"] = {}
+_design_services_lock = threading.Lock()
+# 显式覆盖入口：保持原单租户行为，也方便测试注入固定实例。
+# 显式设置后所有调用者共用它，不再按请求凭证隔离。
+_design_service = None
+
+
+def get_design_service() -> "DesignService":
+    """按本次调用者的凭证返回对应的设计上下文服务。
+
+    DesignService 内部用 cookie 哈希做缓存命名空间，所以一个账号一个实例即可；
+    实例本身无状态，可跨请求复用。这里按凭证指纹缓存实例，避免每次调用都重建
+    目录索引，同时保证不同账号拿到的是完全隔离的缓存根目录。
+    """
+    if _design_service is not None:
+        return _design_service
+    if DesignService is None:
+        raise DesignError("DesignModulesMissing", "Install the full package to use design tools; requirement tools remain available.")
+    credentials = resolve_credentials()
+    service = _design_services.get(credentials.namespace)
+    if service is not None:
+        return service
+    with _design_services_lock:
+        service = _design_services.get(credentials.namespace)
+        if service is None:
+            service = DesignService(
+                DATA_DIR / "design_context", credentials.cookie, credentials.dds_cookie, HTTP_TIMEOUT
+            )
+            _design_services[credentials.namespace] = service
+    return service
 
 
 def _design_failure(exc: Exception) -> dict:
@@ -8256,11 +8442,10 @@ async def lanhu_get_design_overview(
     classification is performed. All later calls use the returned snapshot_id.
     """
     try:
-        if _design_service is None:
-            raise DesignError("DesignModulesMissing", "Install the full package to use design tools; requirement tools remain available.")
-        prepared = await _design_service.prepare(url, design_id, version_id)
-        result = _design_service.query(prepared["snapshot_id"], offset=offset, limit=limit,
-                                       annotate=annotate, include_styles=False)
+        service = get_design_service()
+        prepared = await service.prepare(url, design_id, version_id)
+        result = service.query(prepared["snapshot_id"], offset=offset, limit=limit,
+                               annotate=annotate, include_styles=False)
         return _visual_tool_content({**prepared, **result,
                                      "font_requirements": prepared["font_requirements"],
                                      "selected_font_requirements": result["font_requirements"]})
@@ -8282,12 +8467,11 @@ async def lanhu_inspect_design_region(
     Choose assets by visual evidence and IDs; names need not be meaningful.
     """
     try:
-        if _design_service is None:
-            raise DesignError("DesignModulesMissing", "Install the full package to use design tools; requirement tools remain available.")
+        service = get_design_service()
         if not region and not node_ids:
             raise DesignError("RegionRequired", "Specify a source-canvas region or node_ids.")
-        result = await _design_service.inspect(snapshot_id, region=region, node_ids=node_ids, offset=offset,
-                                               limit=limit, annotate=annotate, include_hidden=include_hidden)
+        result = await service.inspect(snapshot_id, region=region, node_ids=node_ids, offset=offset,
+                                       limit=limit, annotate=annotate, include_hidden=include_hidden)
         return _visual_tool_content(result)
     except Exception as exc:
         return [TextContent(type="text", text=json.dumps(_design_failure(exc), ensure_ascii=False))]
@@ -8308,9 +8492,7 @@ async def lanhu_export_design_assets(
     into its project. A server cache path is not a client path. Partial exports list failures.
     """
     try:
-        if _design_service is None:
-            raise DesignError("DesignModulesMissing", "Install the full package to use design tools; requirement tools remain available.")
-        return await _design_service.export(snapshot_id, asset_ids, kind, target_dpr, format_preference)
+        return await get_design_service().export(snapshot_id, asset_ids, kind, target_dpr, format_preference)
     except Exception as exc:
         return _design_failure(exc)
 
@@ -8318,17 +8500,13 @@ async def lanhu_export_design_assets(
 @mcp.resource("lanhu://design/{snapshot_id}/preview/{preview_id}", mime_type="image/png")
 def lanhu_design_preview(snapshot_id: str, preview_id: str) -> bytes:
     """The exact crop generated by a visual design query."""
-    if _design_service is None:
-        raise DesignError("DesignModulesMissing", "Install the full package to use design resources.")
-    return _design_service.artifact(snapshot_id, "preview", preview_id)
+    return get_design_service().artifact(snapshot_id, "preview", preview_id)
 
 
 @mcp.resource("lanhu://design/{snapshot_id}/bundle/{bundle_id}", mime_type="application/zip")
 def lanhu_design_bundle(snapshot_id: str, bundle_id: str) -> bytes:
     """Verified original assets and their portable manifest; install on the client."""
-    if _design_service is None:
-        raise DesignError("DesignModulesMissing", "Install the full package to use design resources.")
-    return _design_service.artifact(snapshot_id, "bundle", bundle_id)
+    return get_design_service().artifact(snapshot_id, "bundle", bundle_id)
 
 
 def main():
@@ -8349,14 +8527,25 @@ def main():
         SERVER_HOST = args.host
         SERVER_PORT = args.port
         mcp_url = f"http://localhost:{SERVER_PORT}/mcp"
-        print(f"\nCursor MCP 配置示例（端口来自 .env 的 SERVER_PORT={SERVER_PORT}）：")
-        print("{")
-        print('  "mcpServers": {')
-        print('    "lanhu": {')
-        print(f'      "url": "{mcp_url}?role=Developer&name=YourName"')
-        print("    }")
-        print("  }")
-        print("}\n")
+        env_cookie = _normalize_cookie(COOKIE)
+        has_env_cookie = bool(env_cookie) and env_cookie != DEFAULT_COOKIE
+        print(f"\n蓝湖 MCP 服务已启动：{mcp_url}")
+        if has_env_cookie:
+            print("当前为共享账号模式：请求未携带 X-Lanhu-Cookie 时，会使用服务端环境变量里的 Cookie。")
+        else:
+            print("当前为多租户模式：服务端未配置 LANHU_COOKIE，客户端必须在请求头里带自己的 Cookie。")
+        print("\n客户端通过请求头携带自己的蓝湖 Cookie（不会出现在 URL 和访问日志里）：")
+        print("\n  Claude Code (~/.claude.json)：")
+        print('    {"mcpServers": {"lanhu": {"type": "http", "url": "%s",' % mcp_url)
+        print('      "headers": {"X-Lanhu-Cookie": "${LANHU_COOKIE}"}}}}')
+        print("\n  Codex (~/.codex/config.toml)：")
+        print('    [mcp_servers.lanhu]')
+        print('    url = "%s"' % mcp_url)
+        print('    env_http_headers = { "X-Lanhu-Cookie" = "LANHU_COOKIE" }')
+        print("\n  opencode (~/.config/opencode/opencode.json)：")
+        print('    {"mcp": {"lanhu": {"type": "remote", "url": "%s",' % mcp_url)
+        print('      "headers": {"X-Lanhu-Cookie": "{env:LANHU_COOKIE}"}, "oauth": false}}}')
+        print("\n可选请求头：X-Lanhu-Dds-Cookie（设计稿独立账号）、X-Lanhu-Name、X-Lanhu-Role\n")
         mcp.run(transport="http", path="/mcp", host=SERVER_HOST, port=SERVER_PORT)
 
 

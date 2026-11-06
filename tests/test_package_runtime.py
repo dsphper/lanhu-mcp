@@ -210,7 +210,10 @@ import os
 import runpy
 os.environ['LANHU_FORCE_EMBEDDED_DESIGN'] = '1'
 namespace = runpy.run_path(%r, run_name='lanhu_standalone')
-assert namespace['_design_service'] is not None
+# Design services are created per caller credential, so there is no module-level
+# instance; creating one here proves the embedded package is importable and wired.
+assert namespace['DesignService'] is not None
+assert namespace['get_design_service']() is not None
 import lanhu_design
 assert '.zip/lanhu_design/' in lanhu_design.__file__.replace('\\\\', '/')
 print(namespace['__version__'])
