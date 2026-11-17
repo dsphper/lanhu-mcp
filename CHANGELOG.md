@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-11-17
+
+### Fixed
+- Docker image build invokes Playwright as `python -m playwright`, and GitHub Release no longer waits on GHCR publish.
+
+See [v1.9.1 release notes](RELEASE_NOTES_v1.9.1.md).
+
 ## [1.9.0] - 2026-11-17
 
 ### Added

@@ -9,7 +9,7 @@ ENV PYTHONUNBUFFERED=1 \
 COPY pyproject.toml README.md LICENSE lanhu_mcp_server.py ./
 COPY lanhu_design ./lanhu_design
 RUN pip install --no-cache-dir . \
-    && playwright install --with-deps chromium \
+    && python -m playwright install --with-deps chromium \
     && mkdir -p /app/data /app/logs \
     && rm -rf /var/lib/apt/lists/*
 

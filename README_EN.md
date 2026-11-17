@@ -14,7 +14,7 @@
 
 A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for reading Lanhu design documents, Axure prototypes, UI designs and source assets, with a server-local team message board.
 
-**v1.9.0 isolates Lanhu cookies per HTTP request so one server can serve multiple accounts.** See [the release notes](RELEASE_NOTES_v1.9.0.md).
+**v1.9.1 isolates Lanhu cookies per HTTP request so one server can serve multiple accounts.** See [the release notes](RELEASE_NOTES_v1.9.1.md) and [the GitHub Release](https://github.com/dsphper/lanhu-mcp/releases/latest).
 
 **v1.8.7 adds `socksio` for local stdio SOCKS proxies, optional `LANHU_DISABLE_SYSTEM_PROXY`, and a Docker-free stdio guide.** See [the release notes](RELEASE_NOTES_v1.8.7.md) and [LOCAL-STDIO.md](LOCAL-STDIO.md).
 

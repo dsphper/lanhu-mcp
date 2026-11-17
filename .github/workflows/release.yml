@@ -110,7 +110,7 @@ jobs:
 
   create-release:
     name: Publish GitHub release and tested distributions
-    needs: [verify, docs, release-notes, docker-publish]
+    needs: [verify, docs, release-notes]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

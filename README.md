@@ -29,7 +29,7 @@
 
 一个面向蓝湖设计交付与需求阅读的 [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) 服务器。由 MCP 提供来源数据和资源，大模型结合画面理解并适配目标工程。
 
-**v1.9.0：HTTP 支持按请求隔离蓝湖 Cookie，多人可共用同一服务。** [版本说明](RELEASE_NOTES_v1.9.0.md) · [LOCAL-STDIO](LOCAL-STDIO.md) · [设计工作流](DESIGN_CONTEXT.md)
+**v1.9.1：HTTP 按请求隔离蓝湖 Cookie，多人可共用同一服务。** [版本说明](RELEASE_NOTES_v1.9.1.md) · [下载 Release](https://github.com/dsphper/lanhu-mcp/releases/latest) · [LOCAL-STDIO](LOCAL-STDIO.md)
 
 **v1.8.7：本地 stdio 增加 `socksio` 与可选直连开关；新增免 Docker 本地启动指南。** [版本说明](RELEASE_NOTES_v1.8.7.md) · [LOCAL-STDIO](LOCAL-STDIO.md)
 
