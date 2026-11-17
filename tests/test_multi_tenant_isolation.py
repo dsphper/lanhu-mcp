@@ -189,3 +189,60 @@ def test_identity_headers_override_url_query(monkeypatch, request_scope):
     request_scope.set(FakeRequest(name="张三", role="Tester"))
 
     assert server.get_user_info(None) == ("张三", "Tester")
+
+
+@pytest.mark.asyncio
+async def test_real_http_client_header_reaches_tool(monkeypatch):
+    """真实 FastMCP HTTP 传输：客户端 headers 必须能进到工具里的 resolve_credentials。"""
+    from fastmcp import FastMCP, Client
+    from fastmcp.client.transports import StreamableHttpTransport
+    from fastmcp.utilities.tests import run_server_async
+
+    monkeypatch.setattr(server, "COOKIE", "shared=env")
+    monkeypatch.setattr(server, "DDS_COOKIE", "shared=dds-env")
+
+    probe = FastMCP("credential-probe")
+
+    @probe.tool()
+    def whoami() -> dict:
+        credentials = server.resolve_credentials()
+        name, role = server.get_user_info(None)
+        return {
+            "cookie": credentials.cookie,
+            "dds_cookie": credentials.dds_cookie,
+            "name": name,
+            "role": role,
+        }
+
+    async with run_server_async(probe, transport="http") as url:
+        async with Client(
+            StreamableHttpTransport(
+                url,
+                headers={
+                    "X-Lanhu-Cookie": "mine=header",
+                    "X-Lanhu-Name": "Alice",
+                    "X-Lanhu-Role": "Tester",
+                },
+            )
+        ) as client:
+            result = await client.call_tool("whoami")
+            data = result.data
+            assert data["cookie"] == "mine=header"
+            assert data["dds_cookie"] == "mine=header"
+            assert data["name"] == "Alice"
+            assert data["role"] == "Tester"
+
+        async with Client(StreamableHttpTransport(url)) as client:
+            result = await client.call_tool("whoami")
+            data = result.data
+            assert data["cookie"] == "shared=env"
+            assert data["dds_cookie"] == "shared=dds-env"
+
+        async with Client(
+            StreamableHttpTransport(url, headers={"X-Lanhu-Cookie": "alice=1"})
+        ) as alice, Client(
+            StreamableHttpTransport(url, headers={"X-Lanhu-Cookie": "bob=2"})
+        ) as bob:
+            alice_result, bob_result = await alice.call_tool("whoami"), await bob.call_tool("whoami")
+            assert alice_result.data["cookie"] == "alice=1"
+            assert bob_result.data["cookie"] == "bob=2"

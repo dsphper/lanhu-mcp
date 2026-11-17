@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-11-17
+
+### Added
+- HTTP 多租户：每个请求可通过 `X-Lanhu-Cookie` 携带自己的蓝湖身份，凭证、下载缓存和设计上下文按账号隔离，多个用户可共用同一 HTTP 服务（#139, closes #100）。
+
+See [v1.9.0 release notes](RELEASE_NOTES_v1.9.0.md).
+
 ## [1.8.7] - 2026-10-13
 
 ### Added

@@ -16,9 +16,9 @@ from datetime import datetime, timezone, timedelta
 from typing import Annotated, Optional, Union, List, Any
 
 # BEGIN EMBEDDED LANHU_DESIGN (generated; run scripts/embed_lanhu_design.py)
-_EMBEDDED_LANHU_DESIGN_SHA256 = "9bdbf4bdcd84f655b1280d89c796f569d31a165f0a528a1db821c6ecba29b729"
-_EMBEDDED_LANHU_DESIGN_ZIP = """UEsDBBQAAAAIAAAAIVwjl8/iVQAAAFkAAAAYAAAAbGFuaHVfZGVzaWduL19faW5pdF9fLnB5JcwxCoAwDAXQvaf45AAFJ12cXBWc
-XEsxUQOSQqsFb6/g/OAR0SK5aDJhsBTdDVKVxVZBNEYsRa5PTq2SH2wpY4x23JiG2RORcyHUfwgBPajxnW/JvVBLAwQUAAAACAAA
+_EMBEDDED_LANHU_DESIGN_SHA256 = "14bbe0044a17a5a666b81dfe9dcd6a8e939e0b7168a864ce52f37f29c073ee89"
+_EMBEDDED_LANHU_DESIGN_ZIP = """UEsDBBQAAAAIAAAAIVwWqODaVQAAAFkAAAAYAAAAbGFuaHVfZGVzaWduL19faW5pdF9fLnB5JcwxCoAwDAXQvaf45ABFRwcnVwUn
+11JM1ICk0GrB2ys4P3hEtEgumkwYLEV3g1RlsVUQjRFLkeuTU6vkB1vKGKMdN6Zh9kTkXAj1H0JAD2p95xtyL1BLAwQUAAAACAAA
 ACFc10dGHIwRAABSOgAAFwAAAGxhbmh1X2Rlc2lnbi9pbnN0YWxsLnB5rRv9c9u29Xf9FSh7t1KpzNhZmmvdKndOoqzeGttnO7tt
 ro8HkZCFmiJVgrSjZvnf994DQAIUJUu96QdbBIH3hfcNKAiC01xVPMsYZw+ilDMpUvYLz+c140qJik3rPM0Ekzmr5oIlRSrzO8bv
 RF59o1hWJDxjj0V5r5Y8EdFgcA2TPry9YEqUAI4t+IqVdc6KnPG8AAg4lMxlLiLGTivFSqGKukwE+3h5OmIlpynVnOdMVmowk5lQ
@@ -457,7 +457,7 @@ jWGOGY5zOld2o5rumQdt8N3sj81MX5NW77vACAWS/aLqDOnwhK7B7Y0R/fjUVYF2prtzgy2Uy8LyiXEV
 djHfskp+4rKAYk1sWoxvXek96TgNbWUT87ez03hkR49dBqZDiD5qvidh+a4yNYF93X2DOHDMFy7qGe2czF9VEXxD79lAH3zq6MHc
 EMzbGjuPoA7Fv+4r1MJ/wwoqrrB3MgLskgdLd3lmFV4+OPLV8669er6+JPFwr/c9zG/YozKTPc/SzJx6NOMVdL83jNeMDccWv98Z
 4tLRknMRgLxH7yvtaKtOzCe2Gq3/v1bF8Qo/XP1oq90tB8xu3LnHKa297GgvHbRMtnCfnwzQoqmb7X7/B1BLAQIUAxQAAAAIAAAA
-IVwjl8/iVQAAAFkAAAAYAAAAAAAAAAAAAACkAQAAAABsYW5odV9kZXNpZ24vX19pbml0X18ucHlQSwECFAMUAAAACAAAACFc10dG
+IVwWqODaVQAAAFkAAAAYAAAAAAAAAAAAAACkAQAAAABsYW5odV9kZXNpZ24vX19pbml0X18ucHlQSwECFAMUAAAACAAAACFc10dG
 HIwRAABSOgAAFwAAAAAAAAAAAAAApAGLAAAAbGFuaHVfZGVzaWduL2luc3RhbGwucHlQSwECFAMUAAAACAAAACFcPpzIoCoaAADX
 UgAAFQAAAAAAAAAAAAAApAFMEgAAbGFuaHVfZGVzaWduL21lZGlhLnB5UEsBAhQDFAAAAAgAAAAhXEvub3dwGQAAG2AAABkAAAAA
 AAAAAAAAAKQBqSwAAGxhbmh1X2Rlc2lnbi9ub3JtYWxpemUucHlQSwECFAMUAAAACAAAACFcSpqfh80iAABNgAAAFwAAAAAAAAAA
@@ -592,7 +592,8 @@ def _request_headers() -> dict:
     try:
         from fastmcp.server.dependencies import get_http_headers
 
-        # get_http_headers 默认过滤掉 cookie 这类凭据头，必须显式 include。
+        # FastMCP 默认会剥掉 authorization 等转发敏感头；显式 include 自定义凭证头，
+        # 避免后续默认排除名单扩大时把 X-Lanhu-* 滤掉。
         return get_http_headers(include={
             "cookie", LANHU_COOKIE_HEADER, LANHU_DDS_COOKIE_HEADER,
             LANHU_ROLE_HEADER, LANHU_NAME_HEADER,
@@ -638,9 +639,6 @@ class Credentials:
         if len(self.cookie) <= 12:
             return "***" if self.cookie else ""
         return f"{self.cookie[:6]}...{self.cookie[-4:]}"
-
-
-_ANONYMOUS_CREDENTIALS = object()
 
 
 def resolve_credentials() -> Credentials:
@@ -2981,8 +2979,8 @@ def get_user_info(ctx: Context) -> tuple:
 
     顺序：X-Lanhu-Name / X-Lanhu-Role 请求头 > URL query(role/name) >
     LANHU_USER_NAME / LANHU_USER_ROLE 环境变量。
-    优先用请求头是因为 URL query 里的中文在各家客户端支持不一致，而且会进
-    反向代理的 access log；请求头更可靠也不落日志。
+    请求头必须是 ASCII。中文姓名/角色请继续放在 URL query
+    （/mcp?name=张三&role=后端），HTTP 头不能直接承载非 ASCII。
     """
     headers = _request_headers()
     name = _header_value(headers, LANHU_NAME_HEADER)
@@ -8372,7 +8370,7 @@ except ModuleNotFoundError as exc:
     if missing_name != "PIL" and missing_name != "lanhu_design" and not missing_name.startswith("lanhu_design."):
         raise
 
-    __version__ = "1.8.7"
+    __version__ = "1.9.0"
     DesignService = None
 
     class DesignError(Exception):
