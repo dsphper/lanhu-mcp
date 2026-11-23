@@ -523,7 +523,7 @@ AI 会自动：
 | `lanhu_get_pages` | 获取原型页面列表 | 分析需求文档前必调用 |
 | `lanhu_get_ai_analyze_page_result` | 分析原型页面内容，长页返回完整图与横向完整细节分块 | 提取需求细节 |
 | `lanhu_inspect_requirement_region` | 按文字、块 ID、分块 ID 或坐标返回局部视觉证据 | 判断“这两个字段”“如下”“红框处”等模糊指代 |
-| `lanhu_get_designs` | 获取UI设计图列表 | 查看设计稿前必调用 |
+| `lanhu_get_designs` | 获取UI设计图列表（支持分页 offset/limit、名称搜索 search、分组过滤 sector） | 查看设计稿前必调用 |
 | `lanhu_get_design_overview` | 固定版本，返回设计图与节点索引 | 按稳定ID读取设计 |
 | `lanhu_inspect_design_region` | 局部裁图、编号、样式与资源ID | 大模型结合视觉定位元素 |
 | `lanhu_export_design_assets` | 下载校验原始素材并提供资源包 | 自动安装到客户端工程 |
