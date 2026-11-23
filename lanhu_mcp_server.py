@@ -8605,11 +8605,16 @@ def main():
     """Console entry point, also used by python lanhu_mcp_server.py."""
     import argparse
 
+    # docker run --env-file 不剥离引号，SERVER_HOST="0.0.0.0" 会原样进入环境变量
+    def env_str(name: str, default: str) -> str:
+        value = os.getenv(name, default)
+        return value.strip('"\'') if value else value
+
     parser = argparse.ArgumentParser(description="Lanhu MCP: versioned design context and asset delivery")
     parser.add_argument("--version", action="version", version=__version__)
-    parser.add_argument("--transport", choices=("http", "stdio"), default=os.getenv("MCP_TRANSPORT", "http").lower())
-    parser.add_argument("--host", default=os.getenv("SERVER_HOST", "0.0.0.0"))
-    parser.add_argument("--port", type=int, default=int(os.getenv("SERVER_PORT", "8000")))
+    parser.add_argument("--transport", choices=("http", "stdio"), default=env_str("MCP_TRANSPORT", "http").lower())
+    parser.add_argument("--host", default=env_str("SERVER_HOST", "0.0.0.0"))
+    parser.add_argument("--port", type=int, default=int(env_str("SERVER_PORT", "8000")))
     args = parser.parse_args()
     # 运行MCP服务器
     # 默认使用HTTP传输；设置 MCP_TRANSPORT=stdio 时可由MCP客户端按需拉起。
