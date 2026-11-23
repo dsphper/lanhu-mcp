@@ -7103,6 +7103,66 @@ def _normalize_design_sectors(sectors: List[dict]) -> tuple[List[dict], dict[str
     return normalized_sectors, image_sector_map
 
 
+# 分页上限与兜底名称列表上限，防止大项目时工具结果被 MCP 客户端输出预算截断
+DESIGNS_PAGE_LIMIT_MAX = 100
+ANALYZE_AVAILABLE_NAMES_LIMIT = 80
+
+
+def _filter_designs(designs: List[dict], sector: Optional[str] = None, search: Optional[str] = None) -> List[dict]:
+    """按分组名/画板名做本地过滤（不区分大小写子串匹配），保留全量 index。"""
+    sector_key = sector.lower() if sector else None
+    search_key = search.lower() if search else None
+
+    def match(design: dict) -> bool:
+        if sector_key:
+            names = design.get('sectors') or []
+            if not any(sector_key in (name or '').lower() for name in names):
+                return False
+        if search_key and search_key not in (design.get('name') or '').lower():
+            return False
+        return True
+
+    return [design for design in designs if match(design)]
+
+
+def _paginate_designs(designs: List[dict], offset: int = 0, limit: Optional[int] = None) -> tuple[List[dict], dict]:
+    """对已过滤列表切片。limit 为 None 时不分页（全量），offset 始终生效。"""
+    matched = len(designs)
+    offset = max(0, offset)
+    if limit is not None:
+        limit = max(1, min(DESIGNS_PAGE_LIMIT_MAX, limit))
+        page = designs[offset:offset + limit]
+        next_offset = offset + limit if offset + limit < matched else None
+        truncated = next_offset is not None
+    else:
+        page = designs[offset:]
+        next_offset = None
+        truncated = False
+    meta = {
+        'matched': matched,
+        'offset': offset,
+        'limit': limit,
+        'returned': len(page),
+        'next_offset': next_offset,
+        'truncated': truncated,
+    }
+    return page, meta
+
+
+def _format_available_designs(designs: List[dict]) -> List[str]:
+    """构造 analyze 未匹配时的可用画板名列表，超出上限时截断并引导翻页。"""
+    lines = []
+    for design in designs[:ANALYZE_AVAILABLE_NAMES_LIMIT]:
+        if design.get('sectors'):
+            lines.append(f"  • {design['name']} [{', '.join(design['sectors'])}]")
+        else:
+            lines.append(f"  • {design['name']}")
+    if len(designs) > ANALYZE_AVAILABLE_NAMES_LIMIT:
+        lines.append(f"  ... and {len(designs) - ANALYZE_AVAILABLE_NAMES_LIMIT} more. "
+                     f"Use lanhu_get_designs with search/limit+offset to browse the full list.")
+    return lines
+
+
 async def _get_designs_internal(extractor: LanhuExtractor, url: str) -> dict:
     """内部函数：获取设计图列表"""
     # 解析URL获取参数
@@ -7188,17 +7248,29 @@ async def _get_designs_internal(extractor: LanhuExtractor, url: str) -> dict:
 @mcp.tool()
 async def lanhu_get_designs(
     url: Annotated[str, "Lanhu URL WITHOUT docId (indicates UI design project, not PRD). Example: https://lanhuapp.com/web/#/item/project/stage?tid=xxx&pid=xxx. Required param: pid. tid is optional. Supports detailDetach format: ?pid=xxx&image_id=xxx"],
+    offset: Annotated[int, "Pagination offset into the (filtered) design list. Use with next_offset from a previous response to page through large projects"] = 0,
+    limit: Annotated[Optional[int], "Page size (1-100). OMIT to return ALL designs (legacy behavior, may exceed client output budget on large projects). Pass e.g. 50 to page through with offset"] = None,
+    sector: Annotated[Optional[str], "Filter by sector/group name (case-insensitive substring, e.g. '院级理论考试'). See 'sectors' in the response for available groups"] = None,
+    search: Annotated[Optional[str], "Filter designs by name (case-insensitive substring, e.g. '预约'). Use this to locate designs in large projects instead of paging through everything"] = None,
     ctx: Context = None
 ) -> dict:
     """
     [UI Design] Get Lanhu UI design image list - CALL THIS FIRST before analyzing designs
-    
+
     USE THIS WHEN user says: UI设计图, 设计图, 设计稿, 视觉设计, UI稿, 看看设计, 帮我看设计图, 设计评审
     DO NOT USE for: 需求文档, PRD, 原型, 交互稿, Axure (use lanhu_get_pages instead)
     DO NOT USE for: 切图, 图标, 素材 (use lanhu_get_design_slices instead)
-    
+
     Purpose: Get list of UI design images from designers. Must call this BEFORE lanhu_get_ai_analyze_design_result.
-    
+
+    Large projects (100+ designs):
+    1. Prefer search (by name) or sector (by group) to narrow down instead of listing everything
+    2. Or page with limit + offset; response includes matched/returned/next_offset/truncated.
+       'index' in each design is the GLOBAL index of the full list (stable across pages/filters),
+       usable directly as design_names in lanhu_get_ai_analyze_design_result
+    3. Without limit, ALL designs are returned and the response may be cut off by the client
+       output budget (a top-of-response warning is included when this risk exists)
+
     Returns:
         Design image list and project metadata
     """
@@ -7210,21 +7282,48 @@ async def lanhu_get_designs(
         if project_id:
             store = MessageStore(project_id)
             store.record_collaborator(user_name, user_role)
-        
+
         result = await _get_designs_internal(extractor, url)
-        
-        # Add AI suggestion when there are many designs (>8)
-        if result['status'] == 'success':
-            total_designs = result.get('total_designs', 0)
-            if total_designs > 8:
-                result['ai_suggestion'] = {
-                    'notice': f'This project contains {total_designs} design images, which is quite a lot',
-                    'recommendation': 'Ask user whether to download all designs or specific ones first.',
-                    'user_prompt_template': f'该项目包含 {total_designs} 个设计图。请选择：\n1. 下载全部 {total_designs} 个设计图（完整查看所有UI）\n2. 下载关键设计图（请指定需要的设计图）',
-                    'language_note': 'Respond in Chinese when talking to user'
-                }
-        
-        return result
+        if result['status'] != 'success':
+            return result
+
+        # 分页元数据放在 designs 之前：客户端截断只砍尾部，引导信息得以幸存
+        all_designs = result.pop('designs')
+        total_designs = result.pop('total_designs')
+        filtered = _filter_designs(all_designs, sector=sector, search=search)
+        page, meta = _paginate_designs(filtered, offset=offset, limit=limit)
+
+        response = dict(result)
+        response['total_designs'] = total_designs
+        response.update(meta)
+        if sector is not None:
+            response['sector'] = sector
+        if search is not None:
+            response['search'] = search
+
+        suggestion = {}
+        if meta['matched'] == 0:
+            suggestion['notice'] = 'No designs matched the given sector/search filters'
+            suggestion['recommendation'] = 'Re-call without filters, or adjust the sector/search keyword.'
+        elif meta['matched'] > 8:
+            suggestion['notice'] = f'This project contains {meta["matched"]} matching design images, which is quite a lot'
+            suggestion['recommendation'] = 'Ask user whether to download all designs or specific ones first.'
+            suggestion['user_prompt_template'] = f'共匹配到 {meta["matched"]} 个设计图。请选择：\n1. 下载全部匹配的设计图（完整查看所有UI）\n2. 下载关键设计图（请指定需要的设计图）'
+            suggestion['language_note'] = 'Respond in Chinese when talking to user'
+        if meta['truncated']:
+            suggestion['pagination'] = (f'List truncated: showing {meta["returned"]} of {meta["matched"]} designs. '
+                                        f'Re-call with offset={meta["next_offset"]} and the same limit/sector/search to get the next page.')
+        elif limit is None and meta['matched'] > 100:
+            suggestion['client_truncation_risk'] = (f'{meta["matched"]} designs likely exceed the client output budget, '
+                                                    'the response may be cut off. Re-call with limit=50 (plus offset to page), '
+                                                    'or narrow down with search/sector.')
+        if suggestion:
+            response['ai_suggestion'] = suggestion
+
+        # designs 放最后：客户端截断只砍尾部，元数据与引导信息得以幸存
+        response['designs'] = page
+
+        return response
     finally:
         await extractor.close()
 
@@ -7303,14 +7402,9 @@ async def lanhu_get_ai_analyze_design_result(
                         break
 
         if not target_designs:
-            available_names = []
-            for design in designs:
-                if design.get('sectors'):
-                    available_names.append(f"{design['name']} [{', '.join(design['sectors'])}]")
-                else:
-                    available_names.append(design['name'])
             return [
-                f"⚠️ No matching design found\n\nAvailable designs:\n" + "\n".join(f"  • {name}" for name in available_names)]
+                f"⚠️ No matching design found\n\nAvailable designs:\n"
+                + "\n".join(_format_available_designs(designs))]
 
         # 设置输出目录（内部实现，自动管理）
         # 设计图同样按调用者凭证隔离，避免跨账号读到对方的私有设计稿。
